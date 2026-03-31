@@ -3,7 +3,7 @@ import os, yfinance as yf, requests, anthropic, schedule, time
 from datetime import datetime
 import pytz
 
-TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "8719135314:AAFd3Rcrt0VM80WoGbYnhFAN-TBySVXzANI")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8719135314:AAHkO4SsYqFcCUjzgNQ223eYBhUd0p5aySU")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", 643090969)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "sk-ant-api03-X_7NyWc_hGPKA99enw_sg2ahBxtMASxfIFM411G85d-s-2Dftkj0yB_xW6h06jcgLKV3kgwDo0hmsNEKdZ5nOA-ihxBIwAA")
 
