@@ -1,5 +1,0 @@
-yfinance==1.2.0
-requests==2.32.5
-anthropic==0.86.0
-schedule==1.2.2
-pytz==2026.1.post1
