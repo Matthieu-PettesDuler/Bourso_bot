@@ -2,43 +2,40 @@
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser
 from datetime import datetime
 import pytz
-
-TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "8719135314:AAHkO4SsYqFcCUjzgNQ223eYBhUd0p5aySU")
-TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", 7654102743)
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "sk-ant-api03-X_7NyWc_hGPKA99enw_sg2ahBxtMASxfIFM411G85d-s-2Dftkj0yB_xW6h06jcgLKV3kgwDo0hmsNEKdZ5nOA-ihxBIwAA")
-
+ 
+# Les cles sont lues depuis les variables Railway — NE PAS mettre de cles ici
+TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ 
 SEUILS = {
-    # CTO France
-    "ORA.PA":  {"nom": "Orange",          "achat": 16.50, "vente": 19.00, "type": "CTO", "secteur": "Telecom"},
-    "CAP.PA":  {"nom": "Capgemini",       "achat": 90.00, "vente": 115.00,"type": "CTO", "secteur": "IA/Tech"},
-    "TTE.PA":  {"nom": "TotalEnergies",   "achat": 50.00, "vente": 65.00, "type": "CTO", "secteur": "Energie"},
-    "BNP.PA":  {"nom": "BNP Paribas",     "achat": 55.00, "vente": 75.00, "type": "CTO", "secteur": "Banque"},
-    "AM.PA":   {"nom": "Dassault Aviation","achat": 295.00,"vente": 360.00,"type": "CTO", "secteur": "Defense"},
-    "HO.PA":   {"nom": "Thales",          "achat": 220.00,"vente": 270.00,"type": "CTO", "secteur": "Defense/IA"},
-    "AIR.PA":  {"nom": "Airbus",          "achat": 145.00,"vente": 180.00,"type": "CTO", "secteur": "Aerospatiale"},
-    "SAF.PA":  {"nom": "Safran",          "achat": 200.00,"vente": 260.00,"type": "CTO", "secteur": "Defense/Moteurs"},
-    # CTO USA
+    "ORA.PA":  {"nom": "Orange",          "achat": 16.50, "vente": 19.00, "type": "CTO",    "secteur": "Telecom"},
+    "CAP.PA":  {"nom": "Capgemini",       "achat": 90.00, "vente": 115.00,"type": "CTO",    "secteur": "IA/Tech"},
+    "TTE.PA":  {"nom": "TotalEnergies",   "achat": 50.00, "vente": 65.00, "type": "CTO",    "secteur": "Energie"},
+    "BNP.PA":  {"nom": "BNP Paribas",     "achat": 55.00, "vente": 75.00, "type": "CTO",    "secteur": "Banque"},
+    "AM.PA":   {"nom": "Dassault Aviation","achat": 295.00,"vente": 360.00,"type": "CTO",    "secteur": "Defense"},
+    "HO.PA":   {"nom": "Thales",          "achat": 220.00,"vente": 270.00,"type": "CTO",    "secteur": "Defense/IA"},
+    "AIR.PA":  {"nom": "Airbus",          "achat": 145.00,"vente": 180.00,"type": "CTO",    "secteur": "Aerospatiale"},
+    "SAF.PA":  {"nom": "Safran",          "achat": 200.00,"vente": 260.00,"type": "CTO",    "secteur": "Defense/Moteurs"},
     "NVDA":    {"nom": "Nvidia",          "achat": 85.00, "vente": 130.00,"type": "CTO-US", "secteur": "IA/Puces"},
     "PLTR":    {"nom": "Palantir",        "achat": 70.00, "vente": 110.00,"type": "CTO-US", "secteur": "IA/Defense"},
     "MSFT":    {"nom": "Microsoft",       "achat": 380.00,"vente": 450.00,"type": "CTO-US", "secteur": "IA/Cloud"},
-    # PEA
     "CW8.PA":  {"nom": "Bourso Monde",    "achat": None,  "vente": None,  "type": "PEA",    "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",   "achat": None,  "vente": None,  "type": "PEA",    "secteur": "ETF Europe"},
-    # Indices & Matieres
     "^FCHI":   {"nom": "CAC 40",          "achat": None,  "vente": None,  "type": "INDEX",  "secteur": "Indice"},
     "GC=F":    {"nom": "Or",              "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Refuge"},
     "CL=F":    {"nom": "Petrole WTI",     "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Energie"},
 }
-
+ 
 PARIS_TZ = pytz.timezone("Europe/Paris")
-
+ 
 RSS_FEEDS = [
     {"url": "https://feeds.reuters.com/reuters/businessNews", "label": "Reuters Business"},
     {"url": "https://feeds.reuters.com/Reuters/worldNews",    "label": "Reuters Monde"},
     {"url": "https://www.boursorama.com/rss/actu-societes",   "label": "Boursorama"},
     {"url": "https://www.lemonde.fr/economie/rss_full.xml",   "label": "Le Monde Eco"},
 ]
-
+ 
 KEYWORDS_PORTEFEUILLE = [
     "orange", "bnp", "total", "capgemini", "dassault", "thales", "airbus",
     "safran", "nvidia", "palantir", "microsoft", "rafale", "falcon"
@@ -51,7 +48,7 @@ KEYWORDS_MACRO = [
     "intelligence artificielle", "ai", "chatgpt", "deepseek", "mistral",
     "openai", "gemini", "llm", "gpu", "semiconductor"
 ]
-
+ 
 def send_telegram(message):
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/sendMessage"
     try:
@@ -60,7 +57,7 @@ def send_telegram(message):
         print("[" + datetime.now().strftime("%H:%M") + "] Telegram OK")
     except Exception as e:
         print("[ERREUR Telegram] " + str(e))
-
+ 
 def get_cours(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -79,7 +76,7 @@ def get_cours(ticker):
     except Exception as e:
         print("[ERREUR " + ticker + "] " + str(e))
         return None
-
+ 
 def get_news():
     news_portfolio = []
     news_macro = []
@@ -98,7 +95,7 @@ def get_news():
         except Exception as e:
             print("[ERREUR RSS] " + str(e))
     return news_portfolio[:4], news_macro[:4]
-
+ 
 def get_sentiment(donnees):
     types_action = ["CTO", "CTO-US"]
     hausses = sum(1 for d in donnees if d and d["variation"] > 0 and SEUILS.get(d["ticker"],{}).get("type") in types_action)
@@ -112,8 +109,10 @@ def get_sentiment(donnees):
     elif ratio <= 0.3:
         return "BAISSIER"
     return "NEUTRE"
-
+ 
 def analyse_claude(donnees, moment, news_portfolio, news_macro, sentiment):
+    if not ANTHROPIC_API_KEY:
+        return "Cle Claude manquante — configure ANTHROPIC_API_KEY dans Railway Variables."
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     lignes = []
     for d in donnees:
@@ -123,47 +122,47 @@ def analyse_claude(donnees, moment, news_portfolio, news_macro, sentiment):
         lignes.append("- {} [{}|{}] : {} ({}{}%)".format(
             s.get("nom", d["ticker"]), s.get("type",""), s.get("secteur",""),
             d["cours"], "+" if d["variation"]>=0 else "", d["variation"]))
-
+ 
     prompt = """Tu es un analyste financier expert. Analyse pour un investisseur débutant français.
-
+ 
 PORTEFEUILLE :
 CTO France : Orange (183 actions) + Capgemini + TotalEnergies + BNP + Dassault Aviation + Thales + Airbus + Safran
 CTO USA : Nvidia + Palantir + Microsoft (en surveillance)
 PEA : Bourso Monde 200EUR/mois + Bourso Europe 100EUR/mois + Or
-Objectif : revenus réguliers + croissance, risque modéré, horizon 1 an
-
-MARCHÉS {} — {} :
+Objectif : revenus reguliers + croissance, risque modere, horizon 1 an
+ 
+MARCHES {} — {} :
 {}
-
-ACTUALITÉS NOS VALEURS :
+ 
+ACTUALITES NOS VALEURS :
 {}
-
-ACTUALITÉS GÉOPOLITIQUES, DÉFENSE & IA :
+ 
+ACTUALITES GEOPOLITIQUES, DEFENSE & IA :
 {}
-
+ 
 SENTIMENT : {}
-
-ANALYSE GÉOPOLITIQUE APPROFONDIE — fais les liens :
-- Réarmement Europe → Dassault, Thales, Safran, Airbus
-- Révolution IA (ChatGPT, Nvidia, DeepSeek...) → Capgemini, Thales, Palantir, Nvidia, Microsoft
+ 
+ANALYSE GEOPOLITIQUE APPROFONDIE — fais les liens :
+- Rearmement Europe → Dassault, Thales, Safran, Airbus
+- Revolution IA (ChatGPT, Nvidia, DeepSeek...) → Capgemini, Thales, Palantir, Nvidia, Microsoft
 - Taxes Trump / guerre commerciale → TotalEnergies, Airbus, Nvidia (puces)
 - Taux BCE → BNP Paribas, Orange
-- Conflits → Or (refuge) + Pétrole + Dassault
-
-FORMAT DE RÉPONSE (max 250 mots) :
-1. Résumé marché + contexte géopolitique du jour (2 phrases)
-2. TOP 3 signaux du jour avec raison géopolitique/IA
-3. Action prioritaire concrète (1 seule)
-4. Risque global : FAIBLE/MODÉRÉ/ÉLEVÉ + raison
-
-Réponds en français, sois direct et pédagogique pour un débutant.""".format(
+- Conflits → Or (refuge) + Petrole + Dassault
+ 
+FORMAT (max 250 mots) :
+1. Resume marche + contexte geopolitique du jour (2 phrases)
+2. TOP 3 signaux avec raison geopolitique/IA
+3. Action prioritaire concrete (1 seule)
+4. Risque global : FAIBLE/MODERE/ELEVE + raison
+ 
+Reponds en francais, direct et pedagogique.""".format(
         moment.upper(),
         datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
         "\n".join(lignes),
         "\n".join(["• " + n for n in news_portfolio]) if news_portfolio else "Aucune",
         "\n".join(["• " + n for n in news_macro]) if news_macro else "Aucune",
         sentiment)
-
+ 
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -172,7 +171,7 @@ Réponds en français, sois direct et pédagogique pour un débutant.""".format(
         return msg.content[0].text
     except Exception as e:
         return "[Erreur Claude : " + str(e) + "]"
-
+ 
 def analyse_complete(moment):
     now = datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M")
     print("\n[" + now + "] Analyse " + moment + "...")
@@ -181,19 +180,18 @@ def analyse_complete(moment):
     if not donnees_ok:
         send_telegram("Impossible de recuperer les cours (marches fermes ?).")
         return
-
+ 
     news_portfolio, news_macro = get_news()
     sentiment = get_sentiment(donnees_ok)
     sent_emoji = "🟢" if sentiment == "HAUSSIER" else "🔴" if sentiment == "BAISSIER" else "🟡"
-
-    # Bloc cours par catégorie
+ 
     sections = [
         ("📊 CAC + Marchés", ["INDEX", "MATIERES"]),
         ("🏦 CTO France", ["CTO"]),
         ("🌍 CTO USA", ["CTO-US"]),
         ("📈 PEA", ["PEA"]),
     ]
-
+ 
     lignes_msg = []
     alertes = []
     for titre, types in sections:
@@ -219,20 +217,20 @@ def analyse_complete(moment):
                 bloc.append(l)
         if bloc:
             lignes_msg.append("\n<b>{}</b>\n".format(titre) + "\n".join(bloc))
-
+ 
     emoji = "🌅" if moment == "matin" else "🌆"
     analyse = analyse_claude(donnees_ok, moment, news_portfolio, news_macro, sentiment)
-
+ 
     news_bloc = ""
     if news_portfolio or news_macro:
         news_bloc = "\n"
         if news_portfolio:
             news_bloc += "📊 <b>Nos valeurs :</b>\n" + "\n".join(["• " + n[:70] for n in news_portfolio[:3]]) + "\n"
         if news_macro:
-            news_bloc += "🌍 <b>Défense/IA/Géopolitique :</b>\n" + "\n".join(["• " + n[:70] for n in news_macro[:3]]) + "\n"
-
+            news_bloc += "🌍 <b>Defense/IA/Geopolitique :</b>\n" + "\n".join(["• " + n[:70] for n in news_macro[:3]]) + "\n"
+ 
     alertes_bloc = "\n🚨 " + " | ".join(alertes) + "\n" if alertes else ""
-
+ 
     msg = ("{} <b>Analyse {} — {}</b>\n"
            "{} Sentiment : <b>{}</b>\n"
            "――――――――――――――――――――――\n"
@@ -240,18 +238,18 @@ def analyse_complete(moment):
            "――――――――――――――――――――――"
            "{}{}\n"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Analyse géopolitique & IA :</b>\n{}\n"
+           "🤖 <b>Analyse geopolitique & IA :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Réponds ici ou ouvre Claude.ai</i>").format(
+           "<i>Reponds ici ou ouvre Claude.ai</i>").format(
         emoji, moment.upper(), now,
         sent_emoji, sentiment,
         "\n".join(lignes_msg),
         news_bloc, alertes_bloc,
         analyse)
-
+ 
     send_telegram(msg)
     print("[" + now + "] OK")
-
+ 
 def check_alertes_intraday():
     now = datetime.now(PARIS_TZ)
     if now.hour < 9 or (now.hour >= 17 and now.minute >= 30):
@@ -278,23 +276,27 @@ def check_alertes_intraday():
                "\n――――――――――――――――――――――\n"
                "<i>Ouvre Claude.ai pour analyse</i>")
         send_telegram(msg)
-
+ 
 def analyse_matin(): analyse_complete("matin")
 def analyse_soir():  analyse_complete("soir")
-
+ 
 if __name__ == "__main__":
+    if not TELEGRAM_TOKEN:
+        print("[ERREUR] TELEGRAM_TOKEN manquant dans Railway Variables")
+        exit(1)
+    if not ANTHROPIC_API_KEY:
+        print("[ERREUR] ANTHROPIC_API_KEY manquant dans Railway Variables")
+        exit(1)
     print("=" * 50)
     print("  Bot Trading Boursobank v4 — Railway")
-    print("  Défense + IA + Géopolitique")
+    print("  Cles chargees depuis variables Railway")
     print("  09:00 et 17:30 + alertes intraday")
     print("=" * 50)
     send_telegram(
-        "🚀 <b>Bot Trading v4 — Mise à jour !</b>\n\n"
-        "Nouvelles valeurs surveillées :\n"
-        "🛡 <b>Défense FR :</b> Dassault, Thales, Airbus, Safran\n"
-        "🤖 <b>IA US :</b> Nvidia, Palantir, Microsoft\n"
-        "📡 <b>Liens géopolitiques :</b> Réarmement Europe, IA, Trump taxes\n\n"
-        "Analyses à 9h00 et 17h30 🌍")
+        "🚀 <b>Bot Trading v4 demarre !</b>\n\n"
+        "Surveillance : Dassault, Thales, Airbus, Safran\n"
+        "IA US : Nvidia, Palantir, Microsoft\n"
+        "Analyses a 9h00 et 17h30 🌍")
     schedule.every().day.at("09:00").do(analyse_matin)
     schedule.every().day.at("17:30").do(analyse_soir)
     schedule.every(30).minutes.do(check_alertes_intraday)
