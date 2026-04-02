@@ -17,6 +17,8 @@ SEUILS = {
     "HO.PA":   {"nom": "Thales",          "achat": 220.00,"vente": 270.00,"type": "CTO",    "secteur": "Defense/IA"},
     "AIR.PA":  {"nom": "Airbus",          "achat": 145.00,"vente": 180.00,"type": "CTO",    "secteur": "Aerospatiale"},
     "SAF.PA":  {"nom": "Safran",          "achat": 200.00,"vente": 260.00,"type": "CTO",    "secteur": "Defense/Moteurs"},
+    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 280.00,"type": "CTO",    "secteur": "Energie/IA"},
+    "LR.PA":   {"nom": "Legrand",           "achat": 80.00, "vente": 110.00,"type": "CTO",    "secteur": "Electricite"},
     "NVDA":    {"nom": "Nvidia",          "achat": 85.00, "vente": 130.00,"type": "CTO-US", "secteur": "IA/Puces"},
     "PLTR":    {"nom": "Palantir",        "achat": 70.00, "vente": 110.00,"type": "CTO-US", "secteur": "IA/Defense"},
     "MSFT":    {"nom": "Microsoft",       "achat": 380.00,"vente": 450.00,"type": "CTO-US", "secteur": "IA/Cloud"},
@@ -41,7 +43,7 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS_PORTEFEUILLE = [
-    "ge aerospace", "bae systems", "meta", "tesla", "boeing",
+    "ge aerospace", "bae systems", "meta", "tesla", "boeing", "schneider", "legrand", "spacex",
     "orange", "bnp", "total", "capgemini", "dassault", "thales", "airbus",
     "safran", "nvidia", "palantir", "microsoft", "rafale", "falcon"
 ]
