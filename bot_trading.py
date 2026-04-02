@@ -2,12 +2,12 @@
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser
 from datetime import datetime
 import pytz
- 
+
 # Les cles sont lues depuis les variables Railway — NE PAS mettre de cles ici
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
- 
+
 SEUILS = {
     "ORA.PA":  {"nom": "Orange",          "achat": 16.50, "vente": 19.00, "type": "CTO",    "secteur": "Telecom"},
     "CAP.PA":  {"nom": "Capgemini",       "achat": 90.00, "vente": 115.00,"type": "CTO",    "secteur": "IA/Tech"},
@@ -26,16 +26,16 @@ SEUILS = {
     "GC=F":    {"nom": "Or",              "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Refuge"},
     "CL=F":    {"nom": "Petrole WTI",     "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Energie"},
 }
- 
+
 PARIS_TZ = pytz.timezone("Europe/Paris")
- 
+
 RSS_FEEDS = [
     {"url": "https://feeds.reuters.com/reuters/businessNews", "label": "Reuters Business"},
     {"url": "https://feeds.reuters.com/Reuters/worldNews",    "label": "Reuters Monde"},
     {"url": "https://www.boursorama.com/rss/actu-societes",   "label": "Boursorama"},
     {"url": "https://www.lemonde.fr/economie/rss_full.xml",   "label": "Le Monde Eco"},
 ]
- 
+
 KEYWORDS_PORTEFEUILLE = [
     "orange", "bnp", "total", "capgemini", "dassault", "thales", "airbus",
     "safran", "nvidia", "palantir", "microsoft", "rafale", "falcon"
@@ -48,7 +48,7 @@ KEYWORDS_MACRO = [
     "intelligence artificielle", "ai", "chatgpt", "deepseek", "mistral",
     "openai", "gemini", "llm", "gpu", "semiconductor"
 ]
- 
+
 def send_telegram(message):
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/sendMessage"
     try:
@@ -57,7 +57,7 @@ def send_telegram(message):
         print("[" + datetime.now().strftime("%H:%M") + "] Telegram OK")
     except Exception as e:
         print("[ERREUR Telegram] " + str(e))
- 
+
 def get_cours(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -76,7 +76,7 @@ def get_cours(ticker):
     except Exception as e:
         print("[ERREUR " + ticker + "] " + str(e))
         return None
- 
+
 def get_news():
     news_portfolio = []
     news_macro = []
@@ -95,7 +95,7 @@ def get_news():
         except Exception as e:
             print("[ERREUR RSS] " + str(e))
     return news_portfolio[:4], news_macro[:4]
- 
+
 def get_sentiment(donnees):
     types_action = ["CTO", "CTO-US"]
     hausses = sum(1 for d in donnees if d and d["variation"] > 0 and SEUILS.get(d["ticker"],{}).get("type") in types_action)
@@ -109,7 +109,7 @@ def get_sentiment(donnees):
     elif ratio <= 0.3:
         return "BAISSIER"
     return "NEUTRE"
- 
+
 def analyse_claude(donnees, moment, news_portfolio, news_macro, sentiment):
     if not ANTHROPIC_API_KEY:
         return "Cle Claude manquante — configure ANTHROPIC_API_KEY dans Railway Variables."
@@ -122,39 +122,39 @@ def analyse_claude(donnees, moment, news_portfolio, news_macro, sentiment):
         lignes.append("- {} [{}|{}] : {} ({}{}%)".format(
             s.get("nom", d["ticker"]), s.get("type",""), s.get("secteur",""),
             d["cours"], "+" if d["variation"]>=0 else "", d["variation"]))
- 
+
     prompt = """Tu es un analyste financier expert. Analyse pour un investisseur débutant français.
- 
+
 PORTEFEUILLE :
 CTO France : Orange (183 actions) + Capgemini + TotalEnergies + BNP + Dassault Aviation + Thales + Airbus + Safran
 CTO USA : Nvidia + Palantir + Microsoft (en surveillance)
 PEA : Bourso Monde 200EUR/mois + Bourso Europe 100EUR/mois + Or
 Objectif : revenus reguliers + croissance, risque modere, horizon 1 an
- 
+
 MARCHES {} — {} :
 {}
- 
+
 ACTUALITES NOS VALEURS :
 {}
- 
+
 ACTUALITES GEOPOLITIQUES, DEFENSE & IA :
 {}
- 
+
 SENTIMENT : {}
- 
+
 ANALYSE GEOPOLITIQUE APPROFONDIE — fais les liens :
 - Rearmement Europe → Dassault, Thales, Safran, Airbus
 - Revolution IA (ChatGPT, Nvidia, DeepSeek...) → Capgemini, Thales, Palantir, Nvidia, Microsoft
 - Taxes Trump / guerre commerciale → TotalEnergies, Airbus, Nvidia (puces)
 - Taux BCE → BNP Paribas, Orange
 - Conflits → Or (refuge) + Petrole + Dassault
- 
+
 FORMAT (max 250 mots) :
 1. Resume marche + contexte geopolitique du jour (2 phrases)
 2. TOP 3 signaux avec raison geopolitique/IA
 3. Action prioritaire concrete (1 seule)
 4. Risque global : FAIBLE/MODERE/ELEVE + raison
- 
+
 Reponds en francais, direct et pedagogique.""".format(
         moment.upper(),
         datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
@@ -162,7 +162,7 @@ Reponds en francais, direct et pedagogique.""".format(
         "\n".join(["• " + n for n in news_portfolio]) if news_portfolio else "Aucune",
         "\n".join(["• " + n for n in news_macro]) if news_macro else "Aucune",
         sentiment)
- 
+
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -171,7 +171,7 @@ Reponds en francais, direct et pedagogique.""".format(
         return msg.content[0].text
     except Exception as e:
         return "[Erreur Claude : " + str(e) + "]"
- 
+
 def analyse_complete(moment):
     now = datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M")
     print("\n[" + now + "] Analyse " + moment + "...")
@@ -180,18 +180,18 @@ def analyse_complete(moment):
     if not donnees_ok:
         send_telegram("Impossible de recuperer les cours (marches fermes ?).")
         return
- 
+
     news_portfolio, news_macro = get_news()
     sentiment = get_sentiment(donnees_ok)
     sent_emoji = "🟢" if sentiment == "HAUSSIER" else "🔴" if sentiment == "BAISSIER" else "🟡"
- 
+
     sections = [
         ("📊 CAC + Marchés", ["INDEX", "MATIERES"]),
         ("🏦 CTO France", ["CTO"]),
         ("🌍 CTO USA", ["CTO-US"]),
         ("📈 PEA", ["PEA"]),
     ]
- 
+
     lignes_msg = []
     alertes = []
     for titre, types in sections:
@@ -217,10 +217,10 @@ def analyse_complete(moment):
                 bloc.append(l)
         if bloc:
             lignes_msg.append("\n<b>{}</b>\n".format(titre) + "\n".join(bloc))
- 
+
     emoji = "🌅" if moment == "matin" else "🌆"
     analyse = analyse_claude(donnees_ok, moment, news_portfolio, news_macro, sentiment)
- 
+
     news_bloc = ""
     if news_portfolio or news_macro:
         news_bloc = "\n"
@@ -228,9 +228,9 @@ def analyse_complete(moment):
             news_bloc += "📊 <b>Nos valeurs :</b>\n" + "\n".join(["• " + n[:70] for n in news_portfolio[:3]]) + "\n"
         if news_macro:
             news_bloc += "🌍 <b>Defense/IA/Geopolitique :</b>\n" + "\n".join(["• " + n[:70] for n in news_macro[:3]]) + "\n"
- 
+
     alertes_bloc = "\n🚨 " + " | ".join(alertes) + "\n" if alertes else ""
- 
+
     msg = ("{} <b>Analyse {} — {}</b>\n"
            "{} Sentiment : <b>{}</b>\n"
            "――――――――――――――――――――――\n"
@@ -246,10 +246,10 @@ def analyse_complete(moment):
         "\n".join(lignes_msg),
         news_bloc, alertes_bloc,
         analyse)
- 
+
     send_telegram(msg)
     print("[" + now + "] OK")
- 
+
 def check_alertes_intraday():
     now = datetime.now(PARIS_TZ)
     if now.hour < 9 or (now.hour >= 17 and now.minute >= 30):
@@ -276,10 +276,10 @@ def check_alertes_intraday():
                "\n――――――――――――――――――――――\n"
                "<i>Ouvre Claude.ai pour analyse</i>")
         send_telegram(msg)
- 
+
 def analyse_matin(): analyse_complete("matin")
 def analyse_soir():  analyse_complete("soir")
- 
+
 if __name__ == "__main__":
     if not TELEGRAM_TOKEN:
         print("[ERREUR] TELEGRAM_TOKEN manquant dans Railway Variables")
@@ -297,9 +297,11 @@ if __name__ == "__main__":
         "Surveillance : Dassault, Thales, Airbus, Safran\n"
         "IA US : Nvidia, Palantir, Microsoft\n"
         "Analyses a 9h00 et 17h30 🌍")
-    schedule.every().day.at("09:00").do(analyse_matin)
-    schedule.every().day.at("17:30").do(analyse_soir)
-    schedule.every(30).minutes.do(check_alertes_intraday)
+    # Heures en UTC (Railway tourne en UTC) — Paris = UTC+2 en été
+    # 07:00 UTC = 09:00 Paris / 15:30 UTC = 17:30 Paris
+    schedule.every().day.at("07:00").do(analyse_matin)
+    schedule.every().day.at("15:30").do(analyse_soir)
+    schedule.every(120).minutes.do(check_alertes_intraday)
     while True:
         schedule.run_pending()
         time.sleep(30)
