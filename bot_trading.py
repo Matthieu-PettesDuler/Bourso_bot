@@ -20,6 +20,10 @@ SEUILS = {
     "NVDA":    {"nom": "Nvidia",          "achat": 85.00, "vente": 130.00,"type": "CTO-US", "secteur": "IA/Puces"},
     "PLTR":    {"nom": "Palantir",        "achat": 70.00, "vente": 110.00,"type": "CTO-US", "secteur": "IA/Defense"},
     "MSFT":    {"nom": "Microsoft",       "achat": 380.00,"vente": 450.00,"type": "CTO-US", "secteur": "IA/Cloud"},
+    "GE":      {"nom": "GE Aerospace",      "achat": 250.00,"vente": 350.00,"type": "CTO-US", "secteur": "Defense/Moteurs"},
+    "BA":      {"nom": "Boeing",             "achat": 150.00,"vente": 200.00,"type": "CTO-US", "secteur": "Aerospatiale"},
+    "META":    {"nom": "Meta",               "achat": 500.00,"vente": 650.00,"type": "CTO-US", "secteur": "IA/Social"},
+    "TSLA":    {"nom": "Tesla",              "achat": 200.00,"vente": 320.00,"type": "CTO-US", "secteur": "Tech/Auto"},
     "CW8.PA":  {"nom": "Bourso Monde",    "achat": None,  "vente": None,  "type": "PEA",    "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",   "achat": None,  "vente": None,  "type": "PEA",    "secteur": "ETF Europe"},
     "^FCHI":   {"nom": "CAC 40",          "achat": None,  "vente": None,  "type": "INDEX",  "secteur": "Indice"},
@@ -37,6 +41,7 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS_PORTEFEUILLE = [
+    "ge aerospace", "bae systems", "meta", "tesla", "boeing",
     "orange", "bnp", "total", "capgemini", "dassault", "thales", "airbus",
     "safran", "nvidia", "palantir", "microsoft", "rafale", "falcon"
 ]
