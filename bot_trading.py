@@ -3,35 +3,41 @@ import os, yfinance as yf, requests, anthropic, schedule, time, feedparser
 from datetime import datetime
 import pytz
 
-# Les cles sont lues depuis les variables Railway — NE PAS mettre de cles ici
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
+# ============================================================
+# PORTEFEUILLE RÉEL DE MATTHIEU
+# Seuils recalibrés : achat = -10% du cours actuel, vente = objectif analystes
+# ============================================================
 SEUILS = {
-    "ORA.PA":  {"nom": "Orange",          "achat": 16.50, "vente": 19.00, "type": "CTO",    "secteur": "Telecom"},
-    "CAP.PA":  {"nom": "Capgemini",       "achat": 90.00, "vente": 115.00,"type": "CTO",    "secteur": "IA/Tech"},
-    "TTE.PA":  {"nom": "TotalEnergies",   "achat": 50.00, "vente": 65.00, "type": "CTO",    "secteur": "Energie"},
-    "BNP.PA":  {"nom": "BNP Paribas",     "achat": 55.00, "vente": 75.00, "type": "CTO",    "secteur": "Banque"},
-    "AM.PA":   {"nom": "Dassault Aviation","achat": 295.00,"vente": 360.00,"type": "CTO",    "secteur": "Defense"},
-    "HO.PA":   {"nom": "Thales",          "achat": 220.00,"vente": 270.00,"type": "CTO",    "secteur": "Defense/IA"},
-    "AIR.PA":  {"nom": "Airbus",          "achat": 145.00,"vente": 180.00,"type": "CTO",    "secteur": "Aerospatiale"},
-    "SAF.PA":  {"nom": "Safran",          "achat": 200.00,"vente": 260.00,"type": "CTO",    "secteur": "Defense/Moteurs"},
-    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 280.00,"type": "CTO",    "secteur": "Energie/IA"},
-    "LR.PA":   {"nom": "Legrand",           "achat": 80.00, "vente": 110.00,"type": "CTO",    "secteur": "Electricite"},
-    "NVDA":    {"nom": "Nvidia",          "achat": 85.00, "vente": 130.00,"type": "CTO-US", "secteur": "IA/Puces"},
-    "PLTR":    {"nom": "Palantir",        "achat": 70.00, "vente": 110.00,"type": "CTO-US", "secteur": "IA/Defense"},
-    "MSFT":    {"nom": "Microsoft",       "achat": 380.00,"vente": 450.00,"type": "CTO-US", "secteur": "IA/Cloud"},
-    "GE":      {"nom": "GE Aerospace",      "achat": 250.00,"vente": 350.00,"type": "CTO-US", "secteur": "Defense/Moteurs"},
-    "BA":      {"nom": "Boeing",             "achat": 150.00,"vente": 200.00,"type": "CTO-US", "secteur": "Aerospatiale"},
-    "META":    {"nom": "Meta",               "achat": 500.00,"vente": 650.00,"type": "CTO-US", "secteur": "IA/Social"},
-    "TSLA":    {"nom": "Tesla",              "achat": 200.00,"vente": 320.00,"type": "CTO-US", "secteur": "Tech/Auto"},
+    # CTO France — positions réelles
+    "ORA.PA":  {"nom": "Orange",          "achat": 15.50, "vente": 20.00, "type": "CTO",    "secteur": "Telecom",         "quantite": 133},
+    "CAP.PA":  {"nom": "Capgemini",       "achat": 85.00, "vente": 130.00,"type": "CTO",    "secteur": "IA/Tech",         "quantite": 2},
+    "TTE.PA":  {"nom": "TotalEnergies",   "achat": 68.00, "vente": 95.00, "type": "CTO",    "secteur": "Energie",         "quantite": 7},
+    "BNP.PA":  {"nom": "BNP Paribas",     "achat": 72.00, "vente": 100.00,"type": "CTO",    "secteur": "Banque",          "quantite": 5},
+    "AIR.PA":  {"nom": "Airbus",          "achat": 145.00,"vente": 195.00,"type": "CTO",    "secteur": "Aerospatiale",    "quantite": 3},
+    "SAF.PA":  {"nom": "Safran",          "achat": 250.00,"vente": 340.00,"type": "CTO",    "secteur": "Defense/Moteurs", "quantite": 2},
+    # CTO France — surveillance (pas encore achetées)
+    "AM.PA":   {"nom": "Dassault Aviation","achat": 290.00,"vente": 380.00,"type": "WATCH",  "secteur": "Defense"},
+    "HO.PA":   {"nom": "Thales",          "achat": 220.00,"vente": 310.00,"type": "WATCH",  "secteur": "Defense/IA"},
+    "SU.PA":   {"nom": "Schneider Elec.", "achat": 200.00,"vente": 290.00,"type": "WATCH",  "secteur": "Energie/IA"},
+    # CTO USA — surveillance
+    "MSFT":    {"nom": "Microsoft",       "achat": 340.00,"vente": 480.00,"type": "WATCH-US","secteur": "IA/Cloud"},
+    "NVDA":    {"nom": "Nvidia",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "IA/Puces"},
+    "GE":      {"nom": "GE Aerospace",    "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense/Moteurs"},
+    # PEA
     "CW8.PA":  {"nom": "Bourso Monde",    "achat": None,  "vente": None,  "type": "PEA",    "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",   "achat": None,  "vente": None,  "type": "PEA",    "secteur": "ETF Europe"},
+    # Indices & Matières — baromètres du marché
     "^FCHI":   {"nom": "CAC 40",          "achat": None,  "vente": None,  "type": "INDEX",  "secteur": "Indice"},
     "GC=F":    {"nom": "Or",              "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Refuge"},
     "CL=F":    {"nom": "Petrole WTI",     "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Energie"},
 }
+
+# Seuil d'alerte intraday — uniquement si variation > 3% (plus de bruit)
+SEUIL_ALERTE_VARIATION = 3.0
 
 PARIS_TZ = pytz.timezone("Europe/Paris")
 
@@ -39,27 +45,28 @@ RSS_FEEDS = [
     {"url": "https://feeds.reuters.com/reuters/businessNews", "label": "Reuters Business"},
     {"url": "https://feeds.reuters.com/Reuters/worldNews",    "label": "Reuters Monde"},
     {"url": "https://www.boursorama.com/rss/actu-societes",   "label": "Boursorama"},
-    {"url": "https://www.lemonde.fr/economie/rss_full.xml",   "label": "Le Monde Eco"},
 ]
 
 KEYWORDS_PORTEFEUILLE = [
-    "ge aerospace", "bae systems", "meta", "tesla", "boeing", "schneider", "legrand", "spacex",
-    "orange", "bnp", "total", "capgemini", "dassault", "thales", "airbus",
-    "safran", "nvidia", "palantir", "microsoft", "rafale", "falcon"
+    "orange", "bnp", "total", "capgemini", "airbus", "safran",
+    "dassault", "thales", "schneider", "microsoft", "nvidia", "ge aerospace"
 ]
 KEYWORDS_MACRO = [
-    "trump", "tarif", "taxe douaniere", "droits de douane", "sanctions",
-    "guerre", "conflit", "ukraine", "russie", "chine", "taiwan", "iran",
-    "fed", "bce", "taux", "inflation", "recession", "petrole", "opep",
-    "dollar", "euro", "trade war", "tariff", "defense", "rearmement",
-    "intelligence artificielle", "ai", "chatgpt", "deepseek", "mistral",
-    "openai", "gemini", "llm", "gpu", "semiconductor"
+    "trump", "taxe douaniere", "droits de douane", "guerre", "conflit",
+    "iran", "ukraine", "russie", "chine", "fed", "bce", "taux",
+    "recession", "petrole", "opep", "inflation",
+    "intelligence artificielle", "chatgpt", "nvidia", "deepseek",
+    "rearmement", "defense"
 ]
 
 def send_telegram(message):
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/sendMessage"
     try:
-        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
+        r = requests.post(url, json={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }, timeout=10)
         r.raise_for_status()
         print("[" + datetime.now().strftime("%H:%M") + "] Telegram OK")
     except Exception as e:
@@ -101,79 +108,90 @@ def get_news():
                         news_macro.append(title)
         except Exception as e:
             print("[ERREUR RSS] " + str(e))
-    return news_portfolio[:4], news_macro[:4]
+    return news_portfolio[:3], news_macro[:3]
 
 def get_sentiment(donnees):
-    types_action = ["CTO", "CTO-US"]
+    types_action = ["CTO", "WATCH", "WATCH-US"]
     hausses = sum(1 for d in donnees if d and d["variation"] > 0 and SEUILS.get(d["ticker"],{}).get("type") in types_action)
     baisses = sum(1 for d in donnees if d and d["variation"] < 0 and SEUILS.get(d["ticker"],{}).get("type") in types_action)
     total = hausses + baisses
     if total == 0:
         return "NEUTRE"
     ratio = hausses / total
-    if ratio >= 0.7:
+    if ratio >= 0.65:
         return "HAUSSIER"
-    elif ratio <= 0.3:
+    elif ratio <= 0.35:
         return "BAISSIER"
     return "NEUTRE"
 
+def calcul_pv(ticker, cours):
+    """Calcule la plus-value latente sur les positions réelles"""
+    s = SEUILS.get(ticker, {})
+    px_revient = {
+        "ORA.PA": 10.70, "CAP.PA": 161.03, "TTE.PA": 80.15,
+        "BNP.PA": 85.51, "AIR.PA": 166.78, "SAF.PA": 289.87
+    }
+    if ticker in px_revient and s.get("quantite"):
+        pv = (cours - px_revient[ticker]) * s["quantite"]
+        return round(pv, 2)
+    return None
+
 def analyse_claude(donnees, moment, news_portfolio, news_macro, sentiment):
     if not ANTHROPIC_API_KEY:
-        return "Cle Claude manquante — configure ANTHROPIC_API_KEY dans Railway Variables."
+        return "Cle Claude manquante dans Railway Variables."
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
     lignes = []
     for d in donnees:
         if not d:
             continue
         s = SEUILS.get(d["ticker"], {})
-        lignes.append("- {} [{}|{}] : {} ({}{}%)".format(
-            s.get("nom", d["ticker"]), s.get("type",""), s.get("secteur",""),
-            d["cours"], "+" if d["variation"]>=0 else "", d["variation"]))
+        pv = calcul_pv(d["ticker"], d["cours"])
+        pv_str = " | PV: {:+.0f}EUR".format(pv) if pv is not None else ""
+        lignes.append("- {} [{}] : {}EUR ({}{}%){}" .format(
+            s.get("nom", d["ticker"]), s.get("type",""),
+            d["cours"], "+" if d["variation"]>=0 else "", d["variation"], pv_str))
 
-    prompt = """Tu es un analyste financier expert. Analyse pour un investisseur débutant français.
+    prompt = """Tu es un analyste financier rigoureux. Analyse pour Matthieu, investisseur débutant français.
 
-PORTEFEUILLE :
-CTO France : Orange (183 actions) + Capgemini + TotalEnergies + BNP + Dassault Aviation + Thales + Airbus + Safran
-CTO USA : Nvidia + Palantir + Microsoft (en surveillance)
-PEA : Bourso Monde 200EUR/mois + Bourso Europe 100EUR/mois + Or
-Objectif : revenus reguliers + croissance, risque modere, horizon 1 an
+PORTEFEUILLE RÉEL :
+- Orange : 133 actions, px revient 10.70EUR → objectif dividende juin ~160EUR nets
+- Capgemini : 2 actions, px revient 161EUR → en perte latente
+- TotalEnergies : 7 actions, px revient 80.15EUR → lié au pétrole
+- BNP Paribas : 5 actions, px revient 85.51EUR → sensible aux taux BCE
+- Airbus : 3 actions, px revient 166.78EUR → sensible aux taxes Trump
+- Safran : 2 actions, px revient 289.87EUR → défense + moteurs
 
-MARCHES {} — {} :
+RÈGLE IMPORTANTE : horizon 1 an, CTO (flat tax 30% sur plus-values), risque modéré.
+PLAN : pas de nouveaux achats avant analyse approfondie. Priorité = laisser travailler.
+
+MARCHÉS {} — {} :
 {}
 
-ACTUALITES NOS VALEURS :
-{}
-
-ACTUALITES GEOPOLITIQUES, DEFENSE & IA :
-{}
+ACTUALITÉS IMPORTANTES :
+Nos valeurs : {}
+Macro/Géopolitique : {}
 
 SENTIMENT : {}
 
-ANALYSE GEOPOLITIQUE APPROFONDIE — fais les liens :
-- Rearmement Europe → Dassault, Thales, Safran, Airbus
-- Revolution IA (ChatGPT, Nvidia, DeepSeek...) → Capgemini, Thales, Palantir, Nvidia, Microsoft
-- Taxes Trump / guerre commerciale → TotalEnergies, Airbus, Nvidia (puces)
-- Taux BCE → BNP Paribas, Orange
-- Conflits → Or (refuge) + Petrole + Dassault
+ANALYSE (max 200 mots, sois béton sur les faits) :
+1. Résumé marché du jour (1 phrase factuelle)
+2. Impact sur chaque position réelle avec raison concrète
+3. Signal unique : CONSERVER / RENFORCER / ALLEGER sur quelle valeur et pourquoi
+4. Risque principal du moment : FAIBLE / MODÉRÉ / ÉLEVÉ
 
-FORMAT (max 250 mots) :
-1. Resume marche + contexte geopolitique du jour (2 phrases)
-2. TOP 3 signaux avec raison geopolitique/IA
-3. Action prioritaire concrete (1 seule)
-4. Risque global : FAIBLE/MODERE/ELEVE + raison
-
-Reponds en francais, direct et pedagogique.""".format(
+Sois honnête, pas de bullshit. Si tu ne sais pas, dis-le.""".format(
         moment.upper(),
         datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
         "\n".join(lignes),
-        "\n".join(["• " + n for n in news_portfolio]) if news_portfolio else "Aucune",
-        "\n".join(["• " + n for n in news_macro]) if news_macro else "Aucune",
+        " | ".join(news_portfolio) if news_portfolio else "RAS",
+        " | ".join(news_macro) if news_macro else "RAS",
         sentiment)
 
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=600,
+            max_tokens=500,
             messages=[{"role": "user", "content": prompt}])
         return msg.content[0].text
     except Exception as e:
@@ -182,25 +200,28 @@ Reponds en francais, direct et pedagogique.""".format(
 def analyse_complete(moment):
     now = datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M")
     print("\n[" + now + "] Analyse " + moment + "...")
+
     donnees = [get_cours(t) for t in SEUILS.keys()]
     donnees_ok = [d for d in donnees if d]
     if not donnees_ok:
-        send_telegram("Impossible de recuperer les cours (marches fermes ?).")
+        send_telegram("Marches fermes ou erreur reseau.")
         return
 
     news_portfolio, news_macro = get_news()
     sentiment = get_sentiment(donnees_ok)
     sent_emoji = "🟢" if sentiment == "HAUSSIER" else "🔴" if sentiment == "BAISSIER" else "🟡"
 
+    # Sections du message
     sections = [
-        ("📊 CAC + Marchés", ["INDEX", "MATIERES"]),
-        ("🏦 CTO France", ["CTO"]),
-        ("🌍 CTO USA", ["CTO-US"]),
+        ("📊 Marchés", ["INDEX", "MATIERES"]),
+        ("💼 Ton portefeuille", ["CTO"]),
+        ("👁 Surveillance", ["WATCH", "WATCH-US"]),
         ("📈 PEA", ["PEA"]),
     ]
 
     lignes_msg = []
-    alertes = []
+    alertes_seuil = []
+
     for titre, types in sections:
         bloc = []
         for d in donnees_ok:
@@ -208,19 +229,24 @@ def analyse_complete(moment):
             if s["type"] not in types:
                 continue
             f = "🟢" if d["variation"] >= 0 else "🔴"
+
             if s["type"] in ["INDEX", "MATIERES"]:
                 bloc.append("{} <b>{}</b>  {}  {}{}%".format(
-                    f, s["nom"], d["cours"], "+" if d["variation"]>=0 else "", d["variation"]))
+                    f, s["nom"], d["cours"],
+                    "+" if d["variation"]>=0 else "", d["variation"]))
             else:
-                l = "{} <b>{}</b> [{}]  {}  {}{}%".format(
-                    f, s["nom"], s["secteur"], d["cours"],
-                    "+" if d["variation"]>=0 else "", d["variation"])
+                pv = calcul_pv(d["ticker"], d["cours"])
+                pv_str = "  <i>{:+.0f}€</i>".format(pv) if pv is not None else ""
+                l = "{} <b>{}</b>  {}EUR  {}{}%{}".format(
+                    f, s["nom"], d["cours"],
+                    "+" if d["variation"]>=0 else "", d["variation"], pv_str)
+                # Alertes seuils
                 if s["achat"] and d["cours"] <= s["achat"]:
-                    l += "\n   ⚡ Seuil achat {}".format(s["achat"])
-                    alertes.append("⚡ {} sous seuil achat !".format(s["nom"]))
+                    l += "\n   🎯 Zone d'achat !"
+                    alertes_seuil.append("🎯 {} sous seuil achat ({})".format(s["nom"], s["achat"]))
                 if s["vente"] and d["cours"] >= s["vente"]:
-                    l += "\n   ⚡ Seuil vente {}".format(s["vente"])
-                    alertes.append("⚡ {} au-dessus seuil vente !".format(s["nom"]))
+                    l += "\n   💰 Zone de vente !"
+                    alertes_seuil.append("💰 {} au-dessus seuil vente ({})".format(s["nom"], s["vente"]))
                 bloc.append(l)
         if bloc:
             lignes_msg.append("\n<b>{}</b>\n".format(titre) + "\n".join(bloc))
@@ -228,26 +254,28 @@ def analyse_complete(moment):
     emoji = "🌅" if moment == "matin" else "🌆"
     analyse = analyse_claude(donnees_ok, moment, news_portfolio, news_macro, sentiment)
 
+    # News bloc — seulement si pertinent
     news_bloc = ""
     if news_portfolio or news_macro:
-        news_bloc = "\n"
-        if news_portfolio:
-            news_bloc += "📊 <b>Nos valeurs :</b>\n" + "\n".join(["• " + n[:70] for n in news_portfolio[:3]]) + "\n"
-        if news_macro:
-            news_bloc += "🌍 <b>Defense/IA/Geopolitique :</b>\n" + "\n".join(["• " + n[:70] for n in news_macro[:3]]) + "\n"
+        news_bloc = "\n📰 <b>News importantes :</b>\n"
+        for n in (news_portfolio + news_macro)[:3]:
+            news_bloc += "• " + n[:80] + "\n"
 
-    alertes_bloc = "\n🚨 " + " | ".join(alertes) + "\n" if alertes else ""
+    alertes_bloc = ""
+    if alertes_seuil:
+        alertes_bloc = "\n🚨 <b>Seuils franchis :</b>\n" + "\n".join(alertes_seuil) + "\n"
 
     msg = ("{} <b>Analyse {} — {}</b>\n"
            "{} Sentiment : <b>{}</b>\n"
            "――――――――――――――――――――――\n"
            "{}\n"
            "――――――――――――――――――――――"
-           "{}{}\n"
+           "{}"
+           "{}\n"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Analyse geopolitique & IA :</b>\n{}\n"
+           "🤖 <b>Signal Claude :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Reponds ici ou ouvre Claude.ai</i>").format(
+           "<i>Ouvre Claude.ai si besoin d'approfondir</i>").format(
         emoji, moment.upper(), now,
         sent_emoji, sentiment,
         "\n".join(lignes_msg),
@@ -258,57 +286,96 @@ def analyse_complete(moment):
     print("[" + now + "] OK")
 
 def check_alertes_intraday():
+    """Alerte uniquement si variation > 3% — moins de bruit"""
     now = datetime.now(PARIS_TZ)
+    # Heures de marché Paris uniquement
+    if now.weekday() >= 5:  # Samedi/Dimanche
+        return
     if now.hour < 9 or (now.hour >= 17 and now.minute >= 30):
         return
+
     alertes = []
-    for ticker in SEUILS.keys():
-        if SEUILS[ticker]["type"] in ["INDEX", "MATIERES", "PEA"]:
-            continue
+    # Surveille uniquement les positions réelles + CAC40
+    tickers_prioritaires = ["ORA.PA", "CAP.PA", "TTE.PA", "BNP.PA", "AIR.PA", "SAF.PA", "^FCHI"]
+
+    for ticker in tickers_prioritaires:
         d = get_cours(ticker)
         if not d:
             continue
-        if abs(d["variation"]) >= 2.0:
-            s = SEUILS[ticker]
+        if abs(d["variation"]) >= SEUIL_ALERTE_VARIATION:
+            s = SEUILS.get(ticker, {})
             emoji = "📈" if d["variation"] > 0 else "📉"
-            alertes.append("{} <b>{}</b> [{}] : {}  {}{}%".format(
-                emoji, s["nom"], s["secteur"], d["cours"],
-                "+" if d["variation"]>=0 else "", d["variation"]))
+            pv = calcul_pv(ticker, d["cours"])
+            pv_str = " ({:+.0f}€ sur ta position)".format(pv) if pv else ""
+            alertes.append("{} <b>{}</b> : {}EUR  {}{}%{}".format(
+                emoji, s.get("nom", ticker), d["cours"],
+                "+" if d["variation"]>=0 else "", d["variation"], pv_str))
+
     if alertes:
         _, news_macro = get_news()
-        ctx = "\n🌍 Contexte : " + news_macro[0][:80] if news_macro else ""
-        msg = ("🚨 <b>ALERTE — " + datetime.now(PARIS_TZ).strftime("%H:%M") + "</b>\n"
+        ctx = "\n📰 " + news_macro[0][:90] if news_macro else ""
+
+        # Règle d'action automatique
+        action = ""
+        for d in [get_cours(t) for t in tickers_prioritaires if get_cours(t)]:
+            if not d:
+                continue
+            s = SEUILS.get(d["ticker"], {})
+            v = d["variation"]
+            if abs(v) < SEUIL_ALERTE_VARIATION:
+                continue
+            if v <= -5.0:
+                action = "\n⚡ <b>ACTION :</b> Baisse forte. Ne vends pas. Envoie cette alerte à Claude.ai pour analyser si c'est une opportunité de renforcement."
+                break
+            elif v >= 5.0 and s.get("achat") and d["cours"] <= s["achat"]:
+                action = "\n⚡ <b>ACTION :</b> Zone d'achat atteinte. Envoie à Claude.ai pour valider l'entrée."
+                break
+            elif v >= 5.0 and s.get("vente") and d["cours"] >= s["vente"]:
+                action = "\n⚡ <b>ACTION :</b> Zone de vente atteinte. Envoie à Claude.ai pour décider si tu allèges."
+                break
+            elif -5.0 < v < -SEUIL_ALERTE_VARIATION:
+                action = "\n⚡ <b>ACTION :</b> Baisse modérée. Surveille. Pas d'action immédiate nécessaire."
+                break
+            elif SEUIL_ALERTE_VARIATION < v < 5.0:
+                action = "\n⚡ <b>ACTION :</b> Hausse modérée. Continue de conserver."
+                break
+
+        msg = ("🚨 <b>ALERTE — " + now.strftime("%H:%M") + "</b>\n"
                "――――――――――――――――――――――\n" +
-               "\n".join(alertes) + ctx +
+               "\n".join(alertes) +
+               ctx +
+               action +
                "\n――――――――――――――――――――――\n"
-               "<i>Ouvre Claude.ai pour analyse</i>")
+               "<i>Envoie ce message à Claude.ai si tu veux approfondir</i>")
         send_telegram(msg)
 
 def analyse_matin(): analyse_complete("matin")
 def analyse_soir():  analyse_complete("soir")
 
 if __name__ == "__main__":
-    if not TELEGRAM_TOKEN:
-        print("[ERREUR] TELEGRAM_TOKEN manquant dans Railway Variables")
+    if not TELEGRAM_TOKEN or not ANTHROPIC_API_KEY:
+        print("[ERREUR] Variables Railway manquantes")
         exit(1)
-    if not ANTHROPIC_API_KEY:
-        print("[ERREUR] ANTHROPIC_API_KEY manquant dans Railway Variables")
-        exit(1)
+
     print("=" * 50)
-    print("  Bot Trading Boursobank v4 — Railway")
-    print("  Cles chargees depuis variables Railway")
-    print("  09:00 et 17:30 + alertes intraday")
+    print("  Bot Trading Matthieu v5")
+    print("  Analyses : 09:00 et 17:30 (Paris)")
+    print("  Alertes : toutes les 30min, variation > 3%")
     print("=" * 50)
+
     send_telegram(
-        "🚀 <b>Bot Trading v4 demarre !</b>\n\n"
-        "Surveillance : Dassault, Thales, Airbus, Safran\n"
-        "IA US : Nvidia, Palantir, Microsoft\n"
-        "Analyses a 9h00 et 17h30 🌍")
-    # Heures en UTC (Railway tourne en UTC) — Paris = UTC+2 en été
-    # 07:00 UTC = 09:00 Paris / 15:30 UTC = 17:30 Paris
-    schedule.every().day.at("07:00").do(analyse_matin)
-    schedule.every().day.at("15:30").do(analyse_soir)
-    schedule.every(120).minutes.do(check_alertes_intraday)
+        "🚀 <b>Bot v5 — Recalibré !</b>\n\n"
+        "✅ Seuils réalistes sur tes vraies positions\n"
+        "✅ Alertes toutes les 30min si variation > 3%\n"
+        "✅ Plus-values latentes affichées en temps réel\n"
+        "✅ Analyses 9h00 et 17h30 heure Paris\n\n"
+        "Portefeuille suivi : Orange(133) · Cap(2) · Total(7) · BNP(5) · Airbus(3) · Safran(2)")
+
+    # Heures UTC = Paris - 2h en été
+    schedule.every().day.at("07:00").do(analyse_matin)   # 09:00 Paris
+    schedule.every().day.at("15:30").do(analyse_soir)    # 17:30 Paris
+    schedule.every(30).minutes.do(check_alertes_intraday)  # toutes les 30min
+
     while True:
         schedule.run_pending()
         time.sleep(30)
