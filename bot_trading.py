@@ -3,7 +3,7 @@ import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
 from datetime import datetime
 from pathlib import Path
 import pytz
-import numpy as np
+
 
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -74,17 +74,17 @@ def calcul_indicateurs(ticker):
         variation = round((c - h) / h * 100, 2)
 
         # RSI 14
-        deltas = np.diff(closes)
-        gains = np.where(deltas > 0, deltas, 0)
-        pertes = np.where(deltas < 0, -deltas, 0)
-        avg_gain = np.mean(gains[-14:]) if len(gains) >= 14 else np.mean(gains)
-        avg_perte = np.mean(pertes[-14:]) if len(pertes) >= 14 else np.mean(pertes)
+        deltas = [closes[i+1] - closes[i] for i in range(len(closes)-1)]
+        gains = [d if d > 0 else 0 for d in deltas]
+        pertes = [-d if d < 0 else 0 for d in deltas]
+        avg_gain = sum(gains[-14:])/len(gains[-14:]) if len(gains) >= 14 else sum(gains)/max(len(gains),1)
+        avg_perte = sum(pertes[-14:])/len(pertes[-14:]) if len(pertes) >= 14 else sum(pertes)/max(len(pertes),1)
         rsi = round(100 - (100 / (1 + avg_gain / avg_perte)) if avg_perte > 0 else 100, 1)
 
         # Moyennes mobiles
-        mm20  = round(float(np.mean(closes[-20:])), 2)  if len(closes) >= 20  else None
-        mm50  = round(float(np.mean(closes[-50:])), 2)  if len(closes) >= 50  else None
-        mm200 = round(float(np.mean(closes[-200:])), 2) if len(closes) >= 200 else None
+        mm20  = round(sum(closes[-20:])/20, 2) if len(closes) >= 20 else None
+        mm50  = round(sum(closes[-50:])/50, 2) if len(closes) >= 50 else None
+        mm200 = round(sum(closes[-200:])/200, 2) if len(closes) >= 200 else None
 
         # Tendance 1 mois
         tendance_1m = round((closes[-1] - closes[-22]) / closes[-22] * 100, 1) if len(closes) >= 22 else None
@@ -185,13 +185,52 @@ def backtest_decisions():
 # TELEGRAM
 # ============================================================
 def send_telegram(message):
+    """Envoie un message Telegram, découpe si > 3800 chars avec fallback sans HTML"""
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/sendMessage"
-    try:
-        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
-        r.raise_for_status()
-        print("[" + datetime.now().strftime("%H:%M") + "] OK")
-    except Exception as e:
-        print("[ERREUR Telegram] " + str(e))
+    chunks = []
+    while len(message) > 3800:
+        cut = message.rfind("\n", 0, 3800)
+        if cut == -1:
+            cut = 3800
+        chunks.append(message[:cut])
+        message = message[cut:].lstrip("\n")
+    chunks.append(message)
+
+    for i, chunk in enumerate(chunks):
+        if not chunk.strip():
+            continue
+        try:
+            r = requests.post(url, json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": chunk,
+                "parse_mode": "HTML"
+            }, timeout=10)
+            r.raise_for_status()
+            if i < len(chunks) - 1:
+                time.sleep(1)
+            print("[" + datetime.now().strftime("%H:%M") + "] OK")
+        except Exception as e:
+            # Retry sans HTML si erreur de parsing HTML
+            try:
+                clean = chunk.replace("<b>","").replace("</b>","").replace("<i>","").replace("</i>","")
+                r = requests.post(url, json={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": clean
+                }, timeout=10)
+                r.raise_for_status()
+                print("[" + datetime.now().strftime("%H:%M") + "] OK (plain)")
+            except Exception as e2:
+                print("[ERREUR Telegram] " + str(e2))
+            # Retry sans HTML si erreur de parsing
+            try:
+                clean = chunk.replace("<b>","").replace("</b>","").replace("<i>","").replace("</i>","")
+                requests.post(url, json={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": clean,
+                    "parse_mode": None
+                }, timeout=10)
+            except:
+                pass
 
 last_update_id = None
 def check_messages_telegram():
