@@ -433,7 +433,7 @@ def get_eur_usd():
         pass
     return 1.08  # Taux de secours
 
-EUR_USD_RATE = 1.08  # Mis à jour au démarrage
+EUR_USD_RATE = 1.08  # Mis à jour au démarrage — taux de secours
 
 def calcul_pv(ticker, cours):
     """Calcule la PV en EUR — gère la conversion USD/EUR pour les actions US"""
@@ -725,7 +725,6 @@ if __name__ == "__main__":
         exit(1)
     
     # Mise à jour taux EUR/USD au démarrage
-    global EUR_USD_RATE
     EUR_USD_RATE = get_eur_usd()
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
 
