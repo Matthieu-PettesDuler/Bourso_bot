@@ -703,7 +703,7 @@ ANALYSE (250 mots max) :
 1. Résumé géopolitique du jour (1 phrase impactante)
 2. Top 3 signaux avec score combiné (tech + géopolitique)
 3. PROPOSITION D'ORDRE si score > 50 :
-   FORMAT → ACTION | VALEUR | QTÉ | PRIX | TYPE ORDRE | SCORE | RAISON
+   FORMAT : ACTION | VALEUR | QTE | PRIX | TYPE ORDRE | SCORE | RAISON
 4. Risque global : FAIBLE / MODÉRÉ / ÉLEVÉ""".format(
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
@@ -921,15 +921,15 @@ if __name__ == "__main__":
     print("=" * 55)
 
     send_telegram(
-        "🚀 <b>Agent Trading v10 — Géopolitique dynamique !</b>\n\n"
-        "✅ Score géopolitique par action (±30 pts)\n"
-        "✅ Mapping : pétrole↔Total | réarmement↔Safran/Thales/Dassault\n"
-        "✅ Mapping : tarifs↔Airbus | BCE↔BNP | IA↔Microsoft/Capgemini\n"
-        "✅ RSI CRITIQUE <20 : niveau d'alerte renforcé 🆘\n"
-        "✅ RSS élargi : Reuters + Al Jazeera + Boursorama + Investing\n"
-        "✅ Portefeuille mis à jour 29/04/2026\n"
-        "✅ Commande 'geo' → contexte géopolitique instantané\n\n"
-        "Analyses : 9h00 et 17h30 heure Paris 🎯"
+        "🚀 <b>Agent Trading v10 — Geopolitique dynamique !</b>\n\n"
+        "✅ Score geopolitique par action (+-30 pts)\n"
+        "✅ Mapping : petrole-&gt;Total | rearmement-&gt;Safran/Thales/Dassault\n"
+        "✅ Mapping : tarifs-&gt;Airbus | BCE-&gt;BNP | IA-&gt;Microsoft/Capgemini\n"
+        "✅ RSI CRITIQUE &lt;20 : niveau alerte renforce\n"
+        "✅ RSS elargi : Reuters + Al Jazeera + Boursorama + Investing\n"
+        "✅ Portefeuille mis a jour 29/04/2026\n"
+        "✅ Commande 'geo' pour contexte geopolitique instantane\n\n"
+        "Analyses : 9h00 et 17h30 heure Paris"
     )
 
     # UTC : 07:00 = 09:00 Paris (UTC+2 été) / 15:30 = 17:30 Paris
