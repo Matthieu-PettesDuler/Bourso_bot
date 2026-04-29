@@ -631,8 +631,12 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
             score_str = " ⚠️SCORE_VENTE:{} (geo{})".format(
                 score_vente_total, max(0,-geo))
 
-        lignes.append("- {} {}EUR ({}{}%) RSI:{}/{} MACD:{} BB:{} Vol:{} T1M:{}% [{}]{}{} {}".format(
-            s.get("nom",""), d["cours"],
+        # Conversion USD->EUR pour actions US — evite que Claude propose des prix en dollars
+        cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if s["type"] == "CTO-US" else d["cours"]
+        devise_note = " [cours converti USD->EUR]" if s["type"] == "CTO-US" else ""
+
+        lignes.append("- {} {}EUR{} ({}{}%) RSI:{}/{} MACD:{} BB:{} Vol:{} T1M:{}% [{}]{}{} {}".format(
+            s.get("nom",""), cours_eur, devise_note,
             "+" if d["variation"]>=0 else "", d["variation"],
             d.get("rsi","?"), d.get("rsi_niveau","?"),
             d.get("macd_croise","?"),
@@ -699,12 +703,17 @@ NEWS macro : {news_m}
 SENTIMENT : {sentiment}
 {question}
 
+RÈGLE ABSOLUE DEVISES :
+- Tous les cours fournis ci-dessus sont déjà en EUR (les actions US ont été converties USD->EUR)
+- Tu dois TOUJOURS proposer des prix d'ordres en EUR, jamais en USD
+- Ne jamais multiplier ou diviser un cours par un taux de change dans tes réponses
+
 ANALYSE (250 mots max) :
 1. Résumé géopolitique du jour (1 phrase impactante)
 2. Top 3 signaux avec score combiné (tech + géopolitique)
 3. PROPOSITION D'ORDRE si score > 50 :
-   FORMAT : ACTION | VALEUR | QTE | PRIX | TYPE ORDRE | SCORE | RAISON
-4. Risque global : FAIBLE / MODÉRÉ / ÉLEVÉ""".format(
+   FORMAT : ACTION | VALEUR | QTE | PRIX EUR | TYPE ORDRE | SCORE | RAISON
+4. Risque global : FAIBLE / MODERE / ELEVE""".format(
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
         macro=" | ".join(macro),
