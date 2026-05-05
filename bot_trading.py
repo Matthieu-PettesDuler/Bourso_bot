@@ -1108,7 +1108,7 @@ if __name__ == "__main__":
 
     schedule.every().day.at("07:00").do(analyse_matin)
     schedule.every().day.at("15:30").do(analyse_soir)
-    schedule.every(30).minutes.do(check_alertes_intraday)
+    schedule.every(120).minutes.do(check_alertes_intraday)
     schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
 
     while True:
