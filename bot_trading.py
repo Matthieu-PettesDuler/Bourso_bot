@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.1
-Nouveautes vs v10 :
-- Capitol Trades : trades des elus US Congress (Pelosi, etc.) sur tes actions
-- Dividendes : protection automatique avant date detachement (Orange juin 2026)
-- Fix USD/EUR : cours US toujours convertis en EUR dans le prompt Claude
-- Portefeuille mis a jour 04/05/2026 (Microsoft 1 action vendue, cash 191EUR)
-- Score Capitol : +20pts si elu achete la meme action, -20pts si elu vend
-- Commande 'capitol' : affiche les derniers trades des elus sur tes valeurs
-- Instruction anti-hallucination prix renforcee dans prompt Claude
-- Protection dividende : interdit de suggerer vente Orange avant 30/06/2026
+Agent Trading Matthieu v10.2
+Nouveautes vs v10.1 :
+- Palantir (PLTR) : ajout en WATCH-US, defense + IA, score rearmement/contrats gouvernement
+- Google/Alphabet (GOOGL) : surveillance IA, non achetable sur Boursobank mais impacte le secteur
+- Anthropic + OpenAI : integres dans GEO_IMPACT comme catalyseurs IA (societes privees non cotees)
+- GEO_IMPACT enrichi : palantir, gemini, gpt, llm, contrat gouvernement, maven, aip
+- Capitol Trades elargi : PLTR et GOOGL dans le mapping
+- Commande 'ia' : resume actualite IA du jour (Anthropic, OpenAI, Google, Palantir)
+- Correlations mises a jour avec PLTR et GOOGL
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
@@ -73,6 +72,8 @@ SEUILS = {
     "EN.PA":   {"nom": "Edenred",           "achat": 40.00, "vente": 60.00, "type": "WATCH",   "secteur": "Fintech"},
     "NVDA":    {"nom": "Nvidia",            "achat": 100.00,"vente": 220.00,"type": "WATCH-US","secteur": "IA/Puces"},
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
+    "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
+    "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
     # PEA
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe"},
@@ -93,6 +94,8 @@ CORRELATIONS = {
     "ORA.PA": "Orange resiste en crise, dividende stable — NE PAS VENDRE avant juin 2026",
     "CAP.PA": "Capgemini suit la demande IA/IT des entreprises",
     "MSFT":   "Microsoft beneficie de l'IA via Azure et OpenAI — ordre limite obligatoire",
+    "PLTR":   "Palantir = IA defense, monte avec contrats gouvernement US et rearmement",
+    "GOOGL":  "Alphabet/Google = IA via Gemini et Google Cloud, concurrent direct OpenAI/Anthropic",
 }
 
 # ============================================================
@@ -127,11 +130,22 @@ GEO_IMPACT = {
     "intelligence artificielle": {"MSFT": +15, "CAP.PA": +10, "SU.PA": +10, "NVDA": +20},
     "ia":           {"MSFT": +10, "CAP.PA": +10, "SU.PA": +10},
     "cloud":        {"MSFT": +15, "CAP.PA": +10},
-    "openai":       {"MSFT": +20},
-    "anthropic":    {"MSFT": +15, "NVDA": +10},
-    "nvidia":       {"NVDA": +20, "MSFT": +10},
-    "chine":        {"AIR.PA": -10, "MSFT": -5},
-    "taiwan":       {"AIR.PA": -5, "MSFT": -10, "NVDA": -15},
+    "openai":       {"MSFT": +20, "PLTR": +10},
+    "anthropic":    {"MSFT": +15, "NVDA": +10, "PLTR": +5},
+    "nvidia":       {"NVDA": +20, "MSFT": +10, "PLTR": +10},
+    "gemini":       {"GOOGL": +20, "MSFT": -5},
+    "google ai":    {"GOOGL": +15, "MSFT": -5},
+    "alphabet":     {"GOOGL": +10},
+    "palantir":     {"PLTR": +25},
+    "maven":        {"PLTR": +20, "HO.PA": +10},
+    "aip":          {"PLTR": +20},
+    "contrat gouvernement": {"PLTR": +20, "HO.PA": +10, "SAF.PA": +10},
+    "llm":          {"MSFT": +10, "GOOGL": +10, "NVDA": +15, "PLTR": +5},
+    "gpt":          {"MSFT": +15, "PLTR": +5},
+    "agent ia":     {"PLTR": +15, "MSFT": +10, "CAP.PA": +10},
+    "cyber":        {"PLTR": +15, "HO.PA": +10, "MSFT": +5},
+    "chine":        {"AIR.PA": -10, "MSFT": -5, "NVDA": -10},
+    "taiwan":       {"AIR.PA": -5, "MSFT": -10, "NVDA": -15, "PLTR": +5},
     "or":           {"GC=F": +10},
     "gold":         {"GC=F": +10},
     "crise":        {"ORA.PA": +5, "GC=F": +15},
@@ -146,7 +160,8 @@ GEO_IMPACT = {
 CAPITOL_TICKER_MAP = {
     "MSFT":  "MSFT",
     "NVDA":  "NVDA",
-    "GOOGL": None,   # surveillance
+    "PLTR":  "PLTR",
+    "GOOGL": "GOOGL",
     "AMZN":  None,
     "AAPL":  None,
 }
@@ -160,12 +175,15 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS_PORTEFEUILLE = ["orange", "bnp", "total", "capgemini", "airbus", "safran",
-                          "thales", "dassault", "schneider", "microsoft", "nvidia"]
+                          "thales", "dassault", "schneider", "microsoft", "nvidia",
+                          "palantir", "alphabet", "google"]
 KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine",
                    "fed", "bce", "taux", "recession", "petrole", "inflation",
                    "intelligence artificielle", "rearmement", "ormuz", "cessez",
                    "opep", "rafale", "otan", "defense", "tarif", "douane", "gold",
-                   "nvidia", "anthropic", "openai", "pelosi", "congress", "senate"]
+                   "nvidia", "anthropic", "openai", "pelosi", "congress", "senate",
+                   "palantir", "gemini", "gpt", "llm", "cyber", "maven", "aip",
+                   "google ai", "alphabet", "contrat gouvernement"]
 
 # ============================================================
 # CAPITOL TRADES — Trades des elus US Congress
@@ -323,6 +341,29 @@ def check_messages_telegram():
             news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
             msg_geo = formatter_geo_telegram(geo_scores, geo_themes)
             send_telegram("🌍 <b>Contexte geopolitique actuel :</b>\n" + msg_geo)
+            return
+
+        if "ia" == text.lower().strip() or "actu ia" in text.lower():
+            news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
+            ia_themes = [t for t in geo_themes if t in [
+                "ia", "intelligence artificielle", "openai", "anthropic", "gemini",
+                "gpt", "llm", "nvidia", "palantir", "cloud", "agent ia", "cyber"]]
+            ia_impacts = {k: v for k, v in geo_scores.items()
+                          if k in ["MSFT", "NVDA", "PLTR", "GOOGL", "CAP.PA", "SU.PA"]}
+            lignes_ia = ["🤖 <b>Actu IA du jour :</b>"]
+            if ia_themes:
+                lignes_ia.append("Themes : " + ", ".join(ia_themes))
+            for ticker, score in sorted(ia_impacts.items(), key=lambda x: abs(x[1]), reverse=True):
+                nom = SEUILS.get(ticker, {}).get("nom", ticker)
+                emoji_ia = "🟢" if score > 0 else "🔴"
+                lignes_ia.append("  {} {} {:+d}pts".format(emoji_ia, nom, score))
+            ia_news = [n for n in news_m if any(kw in n.lower() for kw in
+                       ["ai", "openai", "anthropic", "palantir", "nvidia", "gemini", "google"])]
+            if ia_news:
+                lignes_ia.append("\nNews :")
+                for n in ia_news[:3]:
+                    lignes_ia.append("• " + n[:80])
+            send_telegram("\n".join(lignes_ia))
             return
 
         if "capitol" in text.lower() or "congress" in text.lower() or "elus" in text.lower():
@@ -963,9 +1004,9 @@ def analyse_complete(moment):
            "――――――――――――――――――――――"
            "{}{}{}{}\n"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Signal agent v10.1 :</b>\n{}\n"
+           "🤖 <b>Signal agent v10.2 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Reponds ici | 'backtest' | 'geo' | 'capitol'</i>").format(
+           "<i>Reponds ici | 'backtest' | 'geo' | 'capitol' | 'ia'</i>").format(
         emoji, moment.upper(), now,
         sent_emoji, sentiment, pv,
         "\n".join(lignes_msg),
@@ -1048,22 +1089,21 @@ if __name__ == "__main__":
     EUR_USD_RATE = get_eur_usd()
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v10.1")
-    print(" Capitol Trades + Dividendes + Fix USD/EUR")
+    print(" Agent Trading Matthieu v10.2")
+    print(" Palantir + Google + IA ecosystem complet")
     print(" Heure Paris : 09:00 et 17:30 (07:00/15:30 UTC)")
     print(" Alertes 30min si variation > 3%")
     print("=" * 55)
 
     send_telegram(
-        "🚀 <b>Agent Trading v10.1 — Mise a jour majeure !</b>\n\n"
-        "✅ Capitol Trades : trades des elus US Congress\n"
-        "✅ Score Capitol : +20pts si elu achete, -20pts si vend\n"
-        "✅ Commande 'capitol' pour voir les derniers trades\n"
-        "✅ Protection dividende Orange (NE PAS VENDRE avant juillet)\n"
-        "✅ Fix USD/EUR definitivement corrige\n"
-        "✅ Portefeuille mis a jour 04/05/2026 (MSFT : 1 action)\n"
-        "✅ Cash actuel : 191EUR\n\n"
-        "Commandes : reponds ici | 'backtest' | 'geo' | 'capitol'"
+        "🚀 <b>Agent Trading v10.2 — IA Ecosystem complet !</b>\n\n"
+        "✅ Palantir (PLTR) : surveillance defense + IA\n"
+        "✅ Alphabet/Google (GOOGL) : surveillance Gemini + Cloud\n"
+        "✅ Anthropic + OpenAI : catalyseurs MSFT/NVDA/PLTR\n"
+        "✅ GEO_IMPACT : maven, aip, gemini, gpt, llm, cyber\n"
+        "✅ Capitol Trades : PLTR et GOOGL dans le mapping\n"
+        "✅ Commande 'ia' : actu IA du jour\n\n"
+        "Commandes : reponds | 'backtest' | 'geo' | 'capitol' | 'ia'"
     )
 
     schedule.every().day.at("07:00").do(analyse_matin)
