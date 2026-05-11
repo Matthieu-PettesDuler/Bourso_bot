@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.2
-Nouveautes vs v10.1 :
-- Palantir (PLTR) : ajout en WATCH-US, defense + IA, score rearmement/contrats gouvernement
-- Google/Alphabet (GOOGL) : surveillance IA, non achetable sur Boursobank mais impacte le secteur
-- Anthropic + OpenAI : integres dans GEO_IMPACT comme catalyseurs IA (societes privees non cotees)
-- GEO_IMPACT enrichi : palantir, gemini, gpt, llm, contrat gouvernement, maven, aip
-- Capitol Trades elargi : PLTR et GOOGL dans le mapping
-- Commande 'ia' : resume actualite IA du jour (Anthropic, OpenAI, Google, Palantir)
-- Correlations mises a jour avec PLTR et GOOGL
+Agent Trading Matthieu v10.3
+Nouveautes vs v10.2 :
+- Fix bug nan : gestion robuste des cours manquants (dividende detachement, suspension)
+- Fix PV totale nan : skip les valeurs sans cours plutot que contaminer le total
+- Alertes intraday : uniquement le matin (09h00-12h30 Paris), plus d'alertes l'apres-midi
+- Analyse soir supprimee : une seule analyse par jour a 09h00
+- Prompt Claude reecrit : description claire du marche + ordre d'action PRECIS
+- Dividende Schneider Electric ajoute (11/05/2026, 4.20EUR/action)
+- Protection dividende : Orange + Schneider bloques en vente
+- Capgemini : ne pas suggerer de couper la perte sauf signal tres fort (score > 80)
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
@@ -32,7 +33,8 @@ SEUIL_ALERTE      = 3.0
 # Le bot refuse de suggerer une vente avant cette date
 # ============================================================
 DIVIDENDES = {
-    "ORA.PA": {"date_detachement": "2026-06-10", "montant_net": 100, "note": "Dividende Orange ~100EUR nets juin 2026"},
+    "ORA.PA": {"date_detachement": "2026-06-10", "montant_net": 100,  "note": "Dividende Orange ~100EUR nets juin 2026"},
+    "SU.PA":  {"date_detachement": "2026-05-11", "montant_net": 8.80, "note": "Dividende Schneider 4.20EUR/action (x3 = ~8.80EUR nets)"},
 }
 
 def protection_dividende(ticker):
@@ -455,6 +457,13 @@ def calcul_indicateurs(ticker):
 
         closes  = hist["Close"].values.tolist()
         volumes = hist["Volume"].values.tolist()
+
+        # Fix nan : filtrer les valeurs invalides (detachement dividende, suspension)
+        closes  = [x for x in closes  if x is not None and x == x and x > 0]
+        volumes = [x for x in volumes if x is not None and x == x]
+        if len(closes) < 26:
+            return None
+
         c = round(float(closes[-1]), 2)
         h = round(float(closes[-2]), 2) if len(closes) > 1 else c
         variation = round((c - h) / h * 100, 2)
@@ -715,8 +724,11 @@ def pv_totale(donnees):
     total = 0
     for d in donnees:
         if not d: continue
+        # Skip si cours invalide (nan, 0)
+        if not d.get("cours") or d["cours"] != d["cours"]: continue
         pv = calcul_pv(d["ticker"], d["cours"])
-        if pv: total += pv
+        if pv is not None and pv == pv:  # Check nan
+            total += pv
     return round(total, 2)
 
 # ============================================================
@@ -817,32 +829,28 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     question_str = "\nQUESTION: " + question_user if question_user else ""
 
-    prompt = """Tu es l'agent financier de Matthieu, investisseur francais debutant.
+    prompt = """Tu es l'agent financier personnel de Matthieu, investisseur francais debutant.
+Ton role : lui dire EXACTEMENT quoi faire ce matin, de facon claire et directe.
 
 PORTEFEUILLE CTO Boursobank (flat tax 30%, horizon 1 an) :
-- Orange : 83 @ 10.70EUR — DIVIDENDE JUIN 2026 ~100EUR nets — NE JAMAIS SUGGERER DE VENTE AVANT JUILLET 2026
-- Capgemini : 4 @ 131.07EUR — perte latente ~103EUR
-- TotalEnergies : 12 @ 78.84EUR
+- Orange : 83 @ 10.70EUR | PV +592EUR | DIVIDENDE JUIN 2026 ~100EUR nets → NE JAMAIS VENDRE AVANT JUILLET 2026
+- Capgemini : 4 @ 131.07EUR | perte ~110EUR | ne pas couper sauf signal > 80pts
+- TotalEnergies : 12 @ 78.84EUR | correlation WTI 85%
 - BNP Paribas : 3 @ 85.51EUR
-- Airbus : 3 @ 166.78EUR
+- Airbus : 3 @ 166.78EUR | sensible tarifs Trump
 - Safran : 2 @ 289.87EUR
-- Thales : 6 @ 247.19EUR — RSI critique depuis 2 semaines
-- Dassault Aviation : 3 @ 317.02EUR
-- Schneider Electric : 3 @ 270.33EUR
-- Microsoft : 1 @ 325.84EUR — ordre limite obligatoire (action US)
+- Thales : 6 @ 247.19EUR | RSI critique depuis 3 semaines
+- Dassault Aviation : 3 @ 317.02EUR | RSI survendu
+- Schneider Electric : 3 @ 270.33EUR | DIVIDENDE 11/05/2026 detache aujourd'hui → NE PAS VENDRE
+- Microsoft : 1 @ 325.84EUR | ordre limite obligatoire (US)
 Cash disponible : ~191EUR
 
 REGLES ABSOLUES :
-1. Tous les cours sont en EUR. Ne jamais proposer de prix en USD.
-2. Les actions US (Microsoft) ont leur cours deja converti USD→EUR. Ne pas reconvertir.
-3. Ne JAMAIS suggerer de vendre Orange avant juillet 2026 (dividende juin).
-4. Ne jamais inventer un prix. Utiliser uniquement les cours fournis.
-5. Actions françaises → ordre au marche. Microsoft → ordre limite obligatoire.
-
-INDICATEURS v10.1 :
-RSI CRITIQUE <20 (+45pts) | SURVENDU <30 (+35pts) | SURCHETE >70 (-35pts) | EXTREME >80 (-45pts)
-Score max 130 (tech + geo + capitol)
-Signal fort = score > 50 → proposer ordre
+1. Tous les prix sont en EUR. Jamais en USD.
+2. Ne jamais suggerer de vendre Orange avant juillet 2026.
+3. Ne jamais inventer un prix. Utiliser uniquement les cours fournis.
+4. Actions francaises → ordre au marche. Microsoft → ordre limite.
+5. Ne pas suggerer de couper Capgemini sauf score > 80pts.
 
 MARCHES {moment} — {date} :
 Macro: {macro}
@@ -850,17 +858,26 @@ Macro: {macro}
 {geo}
 {capitol}
 {dividendes}
-NEWS portefeuille: {news_p}
-NEWS macro: {news_m}
+NEWS: {news_p} | {news_m}
 SENTIMENT: {sentiment}
 {question}
 
-ANALYSE (250 mots max) :
-1. Geopolitique + Capitol Trades : signal le plus impactant du jour (1 phrase)
-2. Top 3 signaux avec score total (tech + geo + capitol)
-3. PROPOSITION D'ORDRE si score > 50 :
-   FORMAT: ACTION | VALEUR | QTE | PRIX EUR | TYPE ORDRE | SCORE | RAISON
-4. Risque global : FAIBLE / MODERE / ELEVE""".format(
+STRUCTURE DE TA REPONSE (respecte exactement cet ordre) :
+
+📊 MARCHE DU JOUR
+[2-3 phrases max : decris l'ambiance generale du marche ce matin. CAC en hausse/baisse ? Pourquoi ? Quel secteur performe ou souffre ? Lien avec la geopolitique si pertinent.]
+
+💼 MON PORTEFEUILLE
+[Pour chaque position significative, une ligne : ce qui va bien, ce qui souffre, pourquoi. Max 6 lignes. Mentionne la PV totale reelle.]
+
+🎯 CE QUE TU DOIS FAIRE AUJOURD'HUI
+[Soit direct. Trois cas possibles :]
+- Si ordre a passer : ACHAT/VENTE | VALEUR | QTE | PRIX EUR | TYPE (marche ou limite) — et explique en 1 phrase pourquoi maintenant.
+- Si rien a faire : dis-le clairement avec la raison (cash insuffisant, attendre dividende, pas de signal confirme).
+- Si surveiller : precise exactement quel niveau declenche l'action.
+
+⚠️ RISQUE DU JOUR
+[1 phrase : le risque principal a surveiller aujourd'hui.]""".format(
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
         macro=" | ".join(macro),
@@ -1004,7 +1021,7 @@ def analyse_complete(moment):
            "――――――――――――――――――――――"
            "{}{}{}{}\n"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Signal agent v10.2 :</b>\n{}\n"
+           "🤖 <b>Agent v10.3 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Reponds ici | 'backtest' | 'geo' | 'capitol' | 'ia'</i>").format(
         emoji, moment.upper(), now,
@@ -1025,7 +1042,8 @@ def analyse_complete(moment):
 def check_alertes_intraday():
     now = datetime.now(PARIS_TZ)
     if now.weekday() >= 5: return
-    if now.hour < 9 or (now.hour == 17 and now.minute >= 30) or now.hour > 17: return
+    # Alertes uniquement le matin : 09h00 → 12h30 Paris
+    if now.hour < 9 or (now.hour == 12 and now.minute > 30) or now.hour > 12: return
 
     tickers = ["ORA.PA","CAP.PA","TTE.PA","BNP.PA","AIR.PA",
                 "SAF.PA","HO.PA","AM.PA","SU.PA","MSFT","^FCHI"]
@@ -1076,7 +1094,6 @@ def check_alertes_intraday():
         send_telegram(msg)
 
 def analyse_matin(): analyse_complete("matin")
-def analyse_soir():  analyse_complete("soir")
 
 # ============================================================
 # BOUCLE PRINCIPALE
@@ -1089,27 +1106,40 @@ if __name__ == "__main__":
     EUR_USD_RATE = get_eur_usd()
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v10.2")
-    print(" Palantir + Google + IA ecosystem complet")
+    print(" Agent Trading Matthieu v10.3")
+    print(" Fix nan + alertes matin only + prompt direct")
     print(" Heure Paris : 09:00 et 17:30 (07:00/15:30 UTC)")
     print(" Alertes 30min si variation > 3%")
     print("=" * 55)
 
     send_telegram(
-        "🚀 <b>Agent Trading v10.2 — IA Ecosystem complet !</b>\n\n"
-        "✅ Palantir (PLTR) : surveillance defense + IA\n"
-        "✅ Alphabet/Google (GOOGL) : surveillance Gemini + Cloud\n"
-        "✅ Anthropic + OpenAI : catalyseurs MSFT/NVDA/PLTR\n"
-        "✅ GEO_IMPACT : maven, aip, gemini, gpt, llm, cyber\n"
-        "✅ Capitol Trades : PLTR et GOOGL dans le mapping\n"
-        "✅ Commande 'ia' : actu IA du jour\n\n"
+        "🚀 <b>Agent Trading v10.3 — Analyse claire et directe !</b>\n\n"
+        "✅ Fix bug nan (Schneider dividende detachement)\n"
+        "✅ PV totale corrigee (plus de nan)\n"
+        "✅ Alertes uniquement le matin (09h00-12h30)\n"
+        "✅ Analyse uniquement le matin a 09h00\n"
+        "✅ Nouveau format : marche + portefeuille + action precise\n"
+        "✅ Dividende Schneider ajoute (4.20EUR x3 = 8.80EUR nets)\n"
+        "✅ Capgemini protege (pas de coupe avant score 80pts)\n\n"
         "Commandes : reponds | 'backtest' | 'geo' | 'capitol' | 'ia'"
     )
 
     schedule.every().day.at("07:00").do(analyse_matin)
-    schedule.every().day.at("15:30").do(analyse_soir)
-    schedule.every(120).minutes.do(check_alertes_intraday)
+    schedule.every(30).minutes.do(check_alertes_intraday)
     schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
+
+    # Rattrapage au demarrage si analyse matin manquee (Railway redemarrage)
+    now_paris = datetime.now(PARIS_TZ)
+    heure = now_paris.hour
+    minute = now_paris.minute
+    jour   = now_paris.weekday()
+
+    if jour < 5:
+        # Matin rate : demarrage entre 9h05 et 10h30 Paris
+        if (heure == 9 and minute >= 5) or (heure == 10 and minute <= 30):
+            print("[RATTRAPAGE] Analyse matin manquee — envoi immediat")
+            time.sleep(5)
+            analyse_matin()
 
     while True:
         schedule.run_pending()
