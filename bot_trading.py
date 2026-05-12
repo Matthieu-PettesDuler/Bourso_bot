@@ -65,9 +65,9 @@ SEUILS = {
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 3,  "px_revient": 85.51},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 3,  "px_revient": 166.78},
     "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 2,  "px_revient": 289.87},
-    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 6,  "px_revient": 247.19},
+    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 8,  "px_revient": 243.32},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 3,  "px_revient": 317.02},
-    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 270.33},
+    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 2,  "px_revient": 270.33},
     "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 1,  "px_revient": 325.84},
     # Surveillance
     "DSY.PA":  {"nom": "Dassault Systemes", "achat": 15.00, "vente": 38.00, "type": "WATCH",   "secteur": "Tech/IA"},
@@ -833,17 +833,17 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 Ton role : lui dire EXACTEMENT quoi faire ce matin, de facon claire et directe.
 
 PORTEFEUILLE CTO Boursobank (flat tax 30%, horizon 1 an) :
-- Orange : 83 @ 10.70EUR | PV +592EUR | DIVIDENDE JUIN 2026 ~100EUR nets → NE JAMAIS VENDRE AVANT JUILLET 2026
-- Capgemini : 4 @ 131.07EUR | perte ~110EUR | ne pas couper sauf signal > 80pts
+- Orange : 83 @ 10.70EUR | PV +636EUR | DIVIDENDE JUIN 2026 ~100EUR nets → NE JAMAIS VENDRE AVANT JUILLET 2026
+- Capgemini : 4 @ 131.07EUR | perte ~127EUR | ne pas couper sauf signal > 80pts
 - TotalEnergies : 12 @ 78.84EUR | correlation WTI 85%
 - BNP Paribas : 3 @ 85.51EUR
 - Airbus : 3 @ 166.78EUR | sensible tarifs Trump
 - Safran : 2 @ 289.87EUR
-- Thales : 6 @ 247.19EUR | RSI critique depuis 3 semaines
-- Dassault Aviation : 3 @ 317.02EUR | RSI survendu
-- Schneider Electric : 3 @ 270.33EUR | DIVIDENDE 11/05/2026 detache aujourd'hui → NE PAS VENDRE
+- Thales : 8 @ 243.32EUR | RSI critique depuis 3 semaines | renforce 12/05/2026
+- Dassault Aviation : 3 @ 317.02EUR | RSI survendu | cible juin avec dividende Orange
+- Schneider Electric : 2 @ 270.33EUR | dividende detache 11/05/2026
 - Microsoft : 1 @ 325.84EUR | ordre limite obligatoire (US)
-Cash disponible : ~191EUR
+Cash disponible : ~240EUR
 
 REGLES ABSOLUES :
 1. Tous les prix sont en EUR. Jamais en USD.
