@@ -4,7 +4,8 @@ Agent Trading Matthieu v10.3
 Nouveautes vs v10.2 :
 - Fix bug nan : gestion robuste des cours manquants (dividende detachement, suspension)
 - Fix PV totale nan : skip les valeurs sans cours plutot que contaminer le total
-- Alertes intraday : uniquement le matin (09h00-12h30 Paris), plus d'alertes l'apres-midi
+- Alertes toutes les 3h dans la plage marche ouvert (09h00-17h00 Paris)
+- max_tokens reduit a 400 (economie tokens Claude)
 - Analyse soir supprimee : une seule analyse par jour a 09h00
 - Prompt Claude reecrit : description claire du marche + ordre d'action PRECIS
 - Dividende Schneider Electric ajoute (11/05/2026, 4.20EUR/action)
@@ -894,7 +895,7 @@ STRUCTURE DE TA REPONSE (respecte exactement cet ordre) :
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=600,
+            max_tokens=400,
             messages=[{"role": "user", "content": prompt}])
         return msg.content[0].text
     except Exception as e:
@@ -1042,8 +1043,8 @@ def analyse_complete(moment):
 def check_alertes_intraday():
     now = datetime.now(PARIS_TZ)
     if now.weekday() >= 5: return
-    # Alertes uniquement le matin : 09h00 → 12h30 Paris
-    if now.hour < 9 or (now.hour == 12 and now.minute > 30) or now.hour > 12: return
+    # Alertes toutes les 3h dans la plage marche ouvert : 09h00 → 17h00 Paris
+    if now.hour < 9 or now.hour >= 17: return
 
     tickers = ["ORA.PA","CAP.PA","TTE.PA","BNP.PA","AIR.PA",
                 "SAF.PA","HO.PA","AM.PA","SU.PA","MSFT","^FCHI"]
@@ -1116,7 +1117,8 @@ if __name__ == "__main__":
         "🚀 <b>Agent Trading v10.3 — Analyse claire et directe !</b>\n\n"
         "✅ Fix bug nan (Schneider dividende detachement)\n"
         "✅ PV totale corrigee (plus de nan)\n"
-        "✅ Alertes uniquement le matin (09h00-12h30)\n"
+        "✅ Alertes toutes les 3h (09h00-17h00 Paris)\n"
+        "✅ max_tokens 400 — economie tokens Claude\n"
         "✅ Analyse uniquement le matin a 09h00\n"
         "✅ Nouveau format : marche + portefeuille + action precise\n"
         "✅ Dividende Schneider ajoute (4.20EUR x3 = 8.80EUR nets)\n"
@@ -1125,7 +1127,7 @@ if __name__ == "__main__":
     )
 
     schedule.every().day.at("07:00").do(analyse_matin)
-    schedule.every(30).minutes.do(check_alertes_intraday)
+    schedule.every(180).minutes.do(check_alertes_intraday)  # toutes les 3h
     schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
 
     # Rattrapage au demarrage si analyse matin manquee (Railway redemarrage)
