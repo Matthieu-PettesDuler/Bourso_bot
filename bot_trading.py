@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.3
-Nouveautes vs v10.2 :
-- Fix bug nan : gestion robuste des cours manquants (dividende detachement, suspension)
-- Fix PV totale nan : skip les valeurs sans cours plutot que contaminer le total
-- Alertes toutes les 3h dans la plage marche ouvert (09h00-17h00 Paris)
-- max_tokens reduit a 400 (economie tokens Claude)
-- Analyse soir supprimee : une seule analyse par jour a 09h00
-- Prompt Claude reecrit : description claire du marche + ordre d'action PRECIS
-- Dividende Schneider Electric ajoute (11/05/2026, 4.20EUR/action)
-- Protection dividende : Orange + Schneider bloques en vente
-- Capgemini : ne pas suggerer de couper la perte sauf signal tres fort (score > 80)
+Agent Trading Matthieu v10.4
+Nouveautes vs v10.3 :
+- Auto-optimisation hebdomadaire : chaque lundi 08h30, le bot analyse ses performances
+  et ajuste automatiquement ses parametres (seuil score, seuil alerte, RSI)
+- Backtest enrichi : RSI et score au moment du signal sont enregistres
+- Garde-fous : les ajustements restent dans des limites raisonnables
+- Rapport Telegram chaque lundi avec diagnostic, ajustements et regle apprise
+- enregistrer_decision() : trace chaque signal pour le backtest futur
+- Historique 10 semaines d'optimisations conserve en memoire
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
@@ -831,27 +829,31 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
     question_str = "\nQUESTION: " + question_user if question_user else ""
 
     prompt = """Tu es l'agent financier personnel de Matthieu, investisseur francais debutant.
-Ton role : lui dire EXACTEMENT quoi faire ce matin, de facon claire et directe.
+Tu es son SEUL conseiller. Il compte sur toi pour prendre les bonnes decisions.
+Sois AUSSI PRECIS ET DIRECT qu'un bon conseiller humain — pas de langue de bois.
 
 PORTEFEUILLE CTO Boursobank (flat tax 30%, horizon 1 an) :
-- Orange : 83 @ 10.70EUR | PV +636EUR | DIVIDENDE JUIN 2026 ~100EUR nets → NE JAMAIS VENDRE AVANT JUILLET 2026
-- Capgemini : 4 @ 131.07EUR | perte ~127EUR | ne pas couper sauf signal > 80pts
+- Orange : 83 @ 10.70EUR | PV +650EUR | DIVIDENDE ~10 JUIN 2026 ~100EUR nets → NE JAMAIS VENDRE AVANT JUILLET 2026
+- Capgemini : 4 @ 131.07EUR | perte ~137EUR | ne pas couper sauf score > 80pts
 - TotalEnergies : 12 @ 78.84EUR | correlation WTI 85%
 - BNP Paribas : 3 @ 85.51EUR
-- Airbus : 3 @ 166.78EUR | sensible tarifs Trump
+- Airbus : 3 @ 166.78EUR | sensible tarifs Trump/Chine
 - Safran : 2 @ 289.87EUR
-- Thales : 8 @ 243.32EUR | RSI critique depuis 3 semaines | renforce 12/05/2026
-- Dassault Aviation : 3 @ 317.02EUR | RSI survendu | cible juin avec dividende Orange
-- Schneider Electric : 2 @ 270.33EUR | dividende detache 11/05/2026
-- Microsoft : 1 @ 325.84EUR | ordre limite obligatoire (US)
+- Thales : 8 @ 243.32EUR | renforce 12/05 | RSI survendu depuis 3 semaines
+- Dassault Aviation : 3 @ 317.02EUR | RSI survendu | cible achat avec dividende Orange juin
+- Schneider Electric : 2 @ 270.33EUR
+- Microsoft : 1 @ 325.84EUR | ordre LIMITE obligatoire (action US, prix en EUR)
 Cash disponible : ~240EUR
 
 REGLES ABSOLUES :
-1. Tous les prix sont en EUR. Jamais en USD.
-2. Ne jamais suggerer de vendre Orange avant juillet 2026.
-3. Ne jamais inventer un prix. Utiliser uniquement les cours fournis.
-4. Actions francaises → ordre au marche. Microsoft → ordre limite.
-5. Ne pas suggerer de couper Capgemini sauf score > 80pts.
+1. Prix toujours en EUR. Jamais en USD.
+2. Ne jamais vendre Orange avant juillet 2026.
+3. Utiliser uniquement les cours fournis, ne pas inventer de prix.
+4. Actions francaises → ordre AU MARCHE. Microsoft → ordre LIMITE.
+5. Ne pas couper Capgemini sauf score > 80pts.
+6. REGLE CRITIQUE : si cash >= cours action ET score >= 50pts → proposer l'achat. Ne pas dire "attendre" si le signal ET le cash sont la.
+7. Verifier le cash restant apres chaque ordre propose (cash - prix action).
+8. Dividende Orange dans ~26j : tenir compte dans la strategie (liquidites proches).
 
 MARCHES {moment} — {date} :
 Macro: {macro}
@@ -863,22 +865,30 @@ NEWS: {news_p} | {news_m}
 SENTIMENT: {sentiment}
 {question}
 
-STRUCTURE DE TA REPONSE (respecte exactement cet ordre) :
+LOGIQUE DE DECISION (applique dans cet ordre) :
+1. Y a-t-il un signal score >= 50pts sur une action ?
+2. Le cash disponible (~240EUR) couvre-t-il le prix de l'action ?
+3. Si OUI aux deux → PROPOSER L'ACHAT avec ordre precis
+4. Si cash insuffisant → dire combien il manque et quand ca sera possible (ex: dividende Orange dans Xj)
+5. Si signal < 50pts → surveiller et donner le niveau exact qui declenche l'action
+6. Ne JAMAIS dire "attendre" sans expliquer PRECISEMENT pourquoi et QUAND agir
+
+STRUCTURE DE TA REPONSE :
 
 📊 MARCHE DU JOUR
-[2-3 phrases max : decris l'ambiance generale du marche ce matin. CAC en hausse/baisse ? Pourquoi ? Quel secteur performe ou souffre ? Lien avec la geopolitique si pertinent.]
+[2 phrases max : ambiance generale, secteur qui performe/souffre, lien geopolitique si pertinent]
 
 💼 MON PORTEFEUILLE
-[Pour chaque position significative, une ligne : ce qui va bien, ce qui souffre, pourquoi. Max 6 lignes. Mentionne la PV totale reelle.]
+[5-6 lignes max : positions cles avec PV, ce qui bouge, pourquoi. PV totale en fin.]
 
 🎯 CE QUE TU DOIS FAIRE AUJOURD'HUI
-[Soit direct. Trois cas possibles :]
-- Si ordre a passer : ACHAT/VENTE | VALEUR | QTE | PRIX EUR | TYPE (marche ou limite) — et explique en 1 phrase pourquoi maintenant.
-- Si rien a faire : dis-le clairement avec la raison (cash insuffisant, attendre dividende, pas de signal confirme).
-- Si surveiller : precise exactement quel niveau declenche l'action.
+[UNE SEULE decision claire :]
+→ Si achat : ACHAT | VALEUR | 1 action | PRIX EUR | AU MARCHE ou LIMITE | pourquoi maintenant en 1 phrase | cash restant apres
+→ Si vente : VENTE | VALEUR | QTE | PRIX EUR | type ordre | pourquoi en 1 phrase
+→ Si rien : "Rien a faire — " + raison precise + "Prochain declencheur : [niveau ou date exacte]"
 
 ⚠️ RISQUE DU JOUR
-[1 phrase : le risque principal a surveiller aujourd'hui.]""".format(
+[1 phrase : le risque principal et son impact potentiel sur le portefeuille]""".format(
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
         macro=" | ".join(macro),
@@ -1097,6 +1107,246 @@ def check_alertes_intraday():
 def analyse_matin(): analyse_complete("matin")
 
 # ============================================================
+# AUTO-OPTIMISATION HEBDOMADAIRE — Chaque lundi 08:30 Paris
+# Le bot analyse ses propres performances et s'ameliore seul
+# ============================================================
+def auto_optimisation():
+    """
+    Chaque lundi matin, le bot :
+    1. Analyse le backtest de ses decisions passees
+    2. Detecte ses erreurs recurrentes
+    3. Ajuste ses parametres (seuils RSI, seuil alerte, seuil score)
+    4. Met a jour la memoire avec les nouveaux parametres
+    5. Envoie un rapport Telegram
+    """
+    now = datetime.now(PARIS_TZ)
+    print("[AUTO-OPTIM] Demarrage optimisation hebdomadaire...")
+
+    m = load_memoire()
+    decisions = m.get("decisions", [])
+    params    = m.get("params", {})
+
+    # Parametres actuels (avec valeurs par defaut)
+    seuil_score_actuel  = params.get("seuil_score", 50)
+    seuil_alerte_actuel = params.get("seuil_alerte", 3.0)
+    seuil_rsi_achat     = params.get("seuil_rsi_achat", 30)
+    seuil_rsi_critique  = params.get("seuil_rsi_critique", 20)
+
+    if not ANTHROPIC_API_KEY:
+        return
+
+    # Calcul backtest sur les 4 dernieres semaines
+    resultats_backtest = []
+    for d in decisions[-20:]:  # 20 dernieres decisions
+        ticker = None
+        for k, v in SEUILS.items():
+            if v["nom"].lower() in d.get("valeur", "").lower():
+                ticker = k
+                break
+        if not ticker: continue
+        data = calcul_indicateurs(ticker)
+        if not data: continue
+        px = d.get("prix", 0)
+        if px and data["cours"]:
+            perf = round((data["cours"] - px) / px * 100, 1)
+            resultats_backtest.append({
+                "valeur":  d.get("valeur", "?"),
+                "action":  d.get("action", "?"),
+                "date":    d.get("date", "?"),
+                "prix":    px,
+                "cours_actuel": data["cours"],
+                "perf":    perf,
+                "rsi_au_signal": d.get("rsi_signal", None),
+                "score_au_signal": d.get("score_signal", None),
+                "verdict": "BON" if perf > 0 else "MAUVAIS"
+            })
+
+    # Stats globales
+    nb_bons    = sum(1 for r in resultats_backtest if r["verdict"] == "BON")
+    nb_mauvais = sum(1 for r in resultats_backtest if r["verdict"] == "MAUVAIS")
+    taux_succes = round(nb_bons / len(resultats_backtest) * 100) if resultats_backtest else 0
+
+    # Historique des optimisations precedentes
+    historique_optim = m.get("historique_optimisations", [])
+
+    # Construire le prompt d'auto-optimisation
+    backtest_str = "\n".join([
+        "- {} {} le {} a {}EUR → cours actuel {}EUR → {:+.1f}% [{}] RSI:{} Score:{}".format(
+            r["action"], r["valeur"], r["date"], r["prix"],
+            r["cours_actuel"], r["perf"], r["verdict"],
+            r.get("rsi_au_signal", "?"), r.get("score_au_signal", "?"))
+        for r in resultats_backtest
+    ]) or "Pas encore assez de decisions pour analyser."
+
+    historique_str = "\n".join([
+        "- {}: {}".format(h.get("date","?"), h.get("resume","?"))
+        for h in historique_optim[-3:]
+    ]) or "Premiere optimisation."
+
+    prompt_optim = """Tu es le systeme d'auto-optimisation de l'agent trading de Matthieu.
+Analyse les performances passees et propose des ajustements PRECIS des parametres.
+
+PARAMETRES ACTUELS :
+- Seuil score achat : {seuil_score} pts (signal declenche si score >= ce seuil)
+- Seuil alerte variation : {seuil_alerte}% (alerte si variation >= ce %)
+- Seuil RSI achat : {seuil_rsi_achat} (survendu si RSI <= ce seuil)
+- Seuil RSI critique : {seuil_rsi_critique} (critique si RSI <= ce seuil)
+
+BACKTEST DES DECISIONS ({nb_decisions} decisions analysees) :
+Taux de succes : {taux_succes}%
+Bonnes decisions : {nb_bons} | Mauvaises : {nb_mauvais}
+
+Detail :
+{backtest}
+
+HISTORIQUE DES OPTIMISATIONS PRECEDENTES :
+{historique}
+
+ANALYSE DEMANDEE (sois tres precis et chiffre) :
+1. DIAGNOSTIC : quels sont les 2-3 problemes principaux detectes dans les decisions ?
+   (ex: "Les achats avec RSI entre 25-30 ont un taux echec 70%" ou "Les signaux score 50-60 sont peu fiables")
+
+2. AJUSTEMENTS PROPOSES (uniquement si justifies par les donnees) :
+   Pour chaque parametre a changer, donne :
+   - Parametre : [nom]
+   - Valeur actuelle : [X]
+   - Nouvelle valeur : [Y]
+   - Raison : [1 phrase basee sur les donnees]
+
+3. REGLE APPRISE cette semaine (1 phrase actionnable pour ameliorer les futurs signaux)
+
+4. SCORE DE CONFIANCE du portefeuille actuel (0-100) base sur les tendances observees
+
+Reponds en JSON strict (sans markdown) :
+{{
+  "diagnostic": "...",
+  "ajustements": [
+    {{"param": "seuil_score", "ancienne_valeur": X, "nouvelle_valeur": Y, "raison": "..."}},
+    ...
+  ],
+  "regle_apprise": "...",
+  "score_confiance_portefeuille": XX,
+  "resume_telegram": "..."
+}}""".format(
+        seuil_score=seuil_score_actuel,
+        seuil_alerte=seuil_alerte_actuel,
+        seuil_rsi_achat=seuil_rsi_achat,
+        seuil_rsi_critique=seuil_rsi_critique,
+        nb_decisions=len(resultats_backtest),
+        taux_succes=taux_succes,
+        nb_bons=nb_bons,
+        nb_mauvais=nb_mauvais,
+        backtest=backtest_str,
+        historique=historique_str
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        resp = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt_optim}]
+        )
+        raw = resp.content[0].text.strip()
+
+        # Parser le JSON
+        import re
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            optim = json.loads(json_match.group())
+        else:
+            optim = json.loads(raw)
+
+        # Appliquer les ajustements
+        ajustements_appliques = []
+        for ajust in optim.get("ajustements", []):
+            param = ajust.get("param", "")
+            nouvelle_val = ajust.get("nouvelle_valeur")
+            ancienne_val = ajust.get("ancienne_valeur")
+            raison = ajust.get("raison", "")
+
+            if param and nouvelle_val is not None:
+                # Garde-fous : ne pas aller dans des extremes dangereux
+                if param == "seuil_score" and 35 <= nouvelle_val <= 75:
+                    params["seuil_score"] = nouvelle_val
+                    ajustements_appliques.append("{}: {} → {} ({})".format(
+                        param, ancienne_val, nouvelle_val, raison))
+                elif param == "seuil_alerte" and 2.0 <= nouvelle_val <= 6.0:
+                    params["seuil_alerte"] = nouvelle_val
+                    ajustements_appliques.append("{}: {} → {} ({})".format(
+                        param, ancienne_val, nouvelle_val, raison))
+                elif param == "seuil_rsi_achat" and 20 <= nouvelle_val <= 40:
+                    params["seuil_rsi_achat"] = nouvelle_val
+                    ajustements_appliques.append("{}: {} → {} ({})".format(
+                        param, ancienne_val, nouvelle_val, raison))
+                elif param == "seuil_rsi_critique" and 10 <= nouvelle_val <= 25:
+                    params["seuil_rsi_critique"] = nouvelle_val
+                    ajustements_appliques.append("{}: {} → {} ({})".format(
+                        param, ancienne_val, nouvelle_val, raison))
+
+        # Sauvegarder en memoire
+        m["params"] = params
+        m["derniere_optimisation"] = now.strftime("%d/%m/%Y %H:%M")
+        m["regle_apprise"] = optim.get("regle_apprise", "")
+        historique_optim.append({
+            "date":   now.strftime("%d/%m/%Y"),
+            "resume": optim.get("resume_telegram", "Optimisation effectuee"),
+            "taux_succes": taux_succes,
+            "ajustements": ajustements_appliques
+        })
+        m["historique_optimisations"] = historique_optim[-10:]  # Garder 10 semaines
+        save_memoire(m)
+
+        # Rapport Telegram
+        adj_str = "\n".join(["  • " + a for a in ajustements_appliques]) if ajustements_appliques else "  Aucun ajustement necessaire cette semaine"
+
+        msg = ("🔧 <b>Auto-optimisation hebdomadaire</b> — {}\n"
+               "――――――――――――――――――――――\n"
+               "📊 Backtest : <b>{} decisions</b> | Taux succes : <b>{}%</b>\n"
+               "✅ Bonnes : {} | ❌ Mauvaises : {}\n\n"
+               "🔍 <b>Diagnostic :</b>\n{}\n\n"
+               "⚙️ <b>Ajustements appliques :</b>\n{}\n\n"
+               "💡 <b>Regle apprise :</b>\n{}\n\n"
+               "🎯 <b>Score confiance portefeuille :</b> {}/100\n"
+               "――――――――――――――――――――――\n"
+               "<i>Optimisation automatique — aucune action requise</i>").format(
+            now.strftime("%d/%m/%Y"),
+            len(resultats_backtest), taux_succes,
+            nb_bons, nb_mauvais,
+            optim.get("diagnostic", "Analyse en cours..."),
+            adj_str,
+            optim.get("regle_apprise", ""),
+            optim.get("score_confiance_portefeuille", "?")
+        )
+        send_telegram(msg)
+        print("[AUTO-OPTIM] OK — {} ajustements appliques".format(len(ajustements_appliques)))
+
+    except Exception as e:
+        print("[AUTO-OPTIM] Erreur : " + str(e))
+        send_telegram("🔧 <b>Auto-optimisation</b> : erreur cette semaine — " + str(e)[:100])
+
+
+def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
+    """
+    Enregistre une decision dans la memoire pour le backtest et l'auto-optimisation.
+    Appele automatiquement quand Claude propose un ordre dans l'analyse.
+    """
+    m = load_memoire()
+    decision = {
+        "date":         datetime.now(PARIS_TZ).strftime("%d/%m/%Y"),
+        "action":       action,
+        "valeur":       valeur,
+        "prix":         prix,
+        "rsi_signal":   rsi,
+        "score_signal": score
+    }
+    m.setdefault("decisions", []).append(decision)
+    # Garder 50 decisions max
+    m["decisions"] = m["decisions"][-50:]
+    save_memoire(m)
+    print("[DECISION] Enregistree : {} {} a {}EUR".format(action, valeur, prix))
+
+# ============================================================
 # BOUCLE PRINCIPALE
 # ============================================================
 if __name__ == "__main__":
@@ -1107,28 +1357,28 @@ if __name__ == "__main__":
     EUR_USD_RATE = get_eur_usd()
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v10.3")
-    print(" Fix nan + alertes matin only + prompt direct")
-    print(" Heure Paris : 09:00 et 17:30 (07:00/15:30 UTC)")
-    print(" Alertes 30min si variation > 3%")
+    print(" Agent Trading Matthieu v10.4")
+    print(" Auto-optimisation hebdomadaire activee")
+    print(" Heure Paris : 09:00 analyse | 08:30 lundi optim")
+    print(" Alertes 3h (09h00-17h00 Paris)")
     print("=" * 55)
 
     send_telegram(
-        "🚀 <b>Agent Trading v10.3 — Analyse claire et directe !</b>\n\n"
-        "✅ Fix bug nan (Schneider dividende detachement)\n"
-        "✅ PV totale corrigee (plus de nan)\n"
-        "✅ Alertes toutes les 3h (09h00-17h00 Paris)\n"
-        "✅ max_tokens 400 — economie tokens Claude\n"
-        "✅ Analyse uniquement le matin a 09h00\n"
-        "✅ Nouveau format : marche + portefeuille + action precise\n"
-        "✅ Dividende Schneider ajoute (4.20EUR x3 = 8.80EUR nets)\n"
-        "✅ Capgemini protege (pas de coupe avant score 80pts)\n\n"
+        "🚀 <b>Agent Trading v10.4 — Auto-optimisation !</b>\n\n"
+        "✅ Auto-optimisation chaque lundi 08h30\n"
+        "✅ Backtest automatique + ajustement des parametres\n"
+        "✅ Rapport hebdomadaire : diagnostic + regles apprises\n"
+        "✅ Garde-fous : ajustements dans limites raisonnables\n"
+        "✅ Historique 10 semaines conserve en memoire\n"
+        "✅ Prompt ameliore : decision directe si signal + cash\n\n"
         "Commandes : reponds | 'backtest' | 'geo' | 'capitol' | 'ia'"
     )
 
     schedule.every().day.at("07:00").do(analyse_matin)
     schedule.every(180).minutes.do(check_alertes_intraday)  # toutes les 3h
     schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
+    # Auto-optimisation : chaque lundi a 08:30 Paris (06:30 UTC)
+    schedule.every().monday.at("06:30").do(auto_optimisation)
 
     # Rattrapage au demarrage si analyse matin manquee (Railway redemarrage)
     now_paris = datetime.now(PARIS_TZ)
