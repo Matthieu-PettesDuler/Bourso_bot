@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.4
-Nouveautes vs v10.3 :
-- Auto-optimisation hebdomadaire : chaque lundi 08h30, le bot analyse ses performances
-  et ajuste automatiquement ses parametres (seuil score, seuil alerte, RSI)
-- Backtest enrichi : RSI et score au moment du signal sont enregistres
-- Garde-fous : les ajustements restent dans des limites raisonnables
-- Rapport Telegram chaque lundi avec diagnostic, ajustements et regle apprise
-- enregistrer_decision() : trace chaque signal pour le backtest futur
-- Historique 10 semaines d'optimisations conserve en memoire
+Agent Trading Matthieu v10.5
+Nouveautes vs v10.4 :
+- ADP (Groupe Aeroports de Paris) ajoute en surveillance (ADP.PA)
+- Luxe francais ajoute en surveillance : LVMH (MC.PA), Hermes (RMS.PA), Kering (KER.PA)
+- GEO_IMPACT enrichi : brand finance, souverainete industrielle, luxe, aeroport, tourisme
+- Pas d'analyse automatique le matin : le bot envoie UNIQUEMENT si signal d'action detecte
+- Pas d'analyse le weekend (samedi + dimanche)
+- Analyse hebdomadaire remplacee par : envoi uniquement si score >= seuil ou RSI critique
+- Auto-optimisation lundi 08h30 conservee
+- Commande 'analyse' : force une analyse manuelle a tout moment
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
@@ -68,9 +69,13 @@ SEUILS = {
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 3,  "px_revient": 317.02},
     "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 2,  "px_revient": 270.33},
     "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 1,  "px_revient": 325.84},
-    # Surveillance
+    # Surveillance — Aeroport + Luxe francais
     "DSY.PA":  {"nom": "Dassault Systemes", "achat": 15.00, "vente": 38.00, "type": "WATCH",   "secteur": "Tech/IA"},
     "EN.PA":   {"nom": "Edenred",           "achat": 40.00, "vente": 60.00, "type": "WATCH",   "secteur": "Fintech"},
+    "ADP.PA":  {"nom": "ADP Aeroports",     "achat": 90.00, "vente": 140.00,"type": "WATCH",   "secteur": "Infrastructure"},
+    "MC.PA":   {"nom": "LVMH",              "achat": 450.00,"vente": 750.00,"type": "WATCH",   "secteur": "Luxe"},
+    "RMS.PA":  {"nom": "Hermes",            "achat": 2000.00,"vente":3500.00,"type": "WATCH",  "secteur": "Luxe"},
+    "KER.PA":  {"nom": "Kering",            "achat": 200.00,"vente": 380.00,"type": "WATCH",   "secteur": "Luxe"},
     "NVDA":    {"nom": "Nvidia",            "achat": 100.00,"vente": 220.00,"type": "WATCH-US","secteur": "IA/Puces"},
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
@@ -97,6 +102,10 @@ CORRELATIONS = {
     "MSFT":   "Microsoft beneficie de l'IA via Azure et OpenAI — ordre limite obligatoire",
     "PLTR":   "Palantir = IA defense, monte avec contrats gouvernement US et rearmement",
     "GOOGL":  "Alphabet/Google = IA via Gemini et Google Cloud, concurrent direct OpenAI/Anthropic",
+    "ADP.PA": "ADP Aeroports = trafic mondial, tourisme, Paris-CDG meilleur aeroport Europe 2026",
+    "MC.PA":  "LVMH = barometre du luxe mondial, sensible consommation Chine et tourisme",
+    "RMS.PA": "Hermes = luxe ultra-premium, resilient en crise, pricing power exceptionnel",
+    "KER.PA": "Kering = Gucci/YSL, plus sensible aux cycles eco que LVMH et Hermes",
 }
 
 # ============================================================
@@ -153,6 +162,20 @@ GEO_IMPACT = {
     "airbus":       {"AIR.PA": +10},
     "boeing":       {"AIR.PA": +5},
     "avion":        {"AIR.PA": +5, "SAF.PA": +5},
+    # Luxe francais
+    "luxe":         {"MC.PA": +15, "RMS.PA": +15, "KER.PA": +15},
+    "lvmh":         {"MC.PA": +20},
+    "hermes":       {"RMS.PA": +20},
+    "kering":       {"KER.PA": +20},
+    "gucci":        {"KER.PA": +15},
+    "chine consommation": {"MC.PA": +20, "KER.PA": +20, "RMS.PA": +15},
+    "tourisme":     {"ADP.PA": +20, "MC.PA": +10},
+    "trafic aerien":{"ADP.PA": +20, "AIR.PA": +10},
+    "aeroport":     {"ADP.PA": +15},
+    "adp":          {"ADP.PA": +20},
+    "brand finance":{"AIR.PA": +10, "BNP.PA": +5},
+    "souverainete": {"AIR.PA": +15, "SAF.PA": +10, "HO.PA": +10},
+    "industrie":    {"AIR.PA": +5, "SAF.PA": +5},
     "stock act":    {"MSFT": +5, "NVDA": +5},
     "pelosi":       {"MSFT": +10, "NVDA": +10},
 }
@@ -177,14 +200,17 @@ RSS_FEEDS = [
 
 KEYWORDS_PORTEFEUILLE = ["orange", "bnp", "total", "capgemini", "airbus", "safran",
                           "thales", "dassault", "schneider", "microsoft", "nvidia",
-                          "palantir", "alphabet", "google"]
+                          "palantir", "alphabet", "google", "lvmh", "hermes", "kering",
+                          "adp", "aeroport", "luxe"]
 KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine",
                    "fed", "bce", "taux", "recession", "petrole", "inflation",
                    "intelligence artificielle", "rearmement", "ormuz", "cessez",
                    "opep", "rafale", "otan", "defense", "tarif", "douane", "gold",
                    "nvidia", "anthropic", "openai", "pelosi", "congress", "senate",
                    "palantir", "gemini", "gpt", "llm", "cyber", "maven", "aip",
-                   "google ai", "alphabet", "contrat gouvernement"]
+                   "google ai", "alphabet", "contrat gouvernement",
+                   "luxe", "tourisme", "trafic aerien", "brand finance",
+                   "souverainete", "chine consommation", "gucci"]
 
 # ============================================================
 # CAPITOL TRADES — Trades des elus US Congress
@@ -342,6 +368,10 @@ def check_messages_telegram():
             news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
             msg_geo = formatter_geo_telegram(geo_scores, geo_themes)
             send_telegram("🌍 <b>Contexte geopolitique actuel :</b>\n" + msg_geo)
+            return
+
+        if text.lower().strip() in ["analyse", "analyze", "scan", "status"]:
+            analyse_forcee()
             return
 
         if "ia" == text.lower().strip() or "actu ia" in text.lower():
@@ -914,138 +944,193 @@ STRUCTURE DE TA REPONSE :
 # ============================================================
 # ANALYSE COMPLETE v10.1
 # ============================================================
-def analyse_complete(moment):
-    now = datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M")
-    print("\n[" + now + "] Analyse " + moment + "...")
+def analyse_complete(moment="scan", force=False):
+    """
+    v10.5 : N'envoie un message QUE si un signal d'action est detecte
+    ou si force=True (commande manuelle 'analyse').
+    Pas d'envoi le weekend. Pas d'envoi si aucun signal.
+    """
+    now_paris = datetime.now(PARIS_TZ)
+
+    # Pas d'envoi le weekend sauf si force
+    if now_paris.weekday() >= 5 and not force:
+        print("[SCAN] Weekend — pas d'analyse")
+        return
+
+    now = now_paris.strftime("%d/%m/%Y %H:%M")
+    print("\n[" + now + "] Scan signaux...")
 
     donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
     donnees_ok = [d for d in donnees if d]
 
     if not donnees_ok:
-        send_telegram("Marches fermes ou erreur reseau.")
+        if force:
+            send_telegram("Marches fermes ou erreur reseau.")
         return
 
     news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
     capitol_trades = get_capitol_trades()
     sentiment = get_sentiment(donnees_ok)
-    sent_emoji = "🟢" if sentiment == "HAUSSIER" else "🔴" if sentiment == "BAISSIER" else "🟡"
     pv = pv_totale(donnees_ok)
+    m_mem = load_memoire()
+    params = m_mem.get("params", {})
+    seuil_score = params.get("seuil_score", 50)
 
-    sections = [
-        ("📊 Marches",     ["INDEX", "MATIERES"]),
-        ("💼 Portefeuille", ["CTO", "CTO-US"]),
-        ("👁 Surveillance", ["WATCH", "WATCH-US"]),
-        ("📈 PEA",          ["PEA"]),
-    ]
-
-    lignes_msg = []
+    # ── Detecter les signaux d'action ───────────────────────
+    signaux_forts = []
     alertes_seuil = []
 
-    for titre, types in sections:
-        bloc = []
-        for d in donnees_ok:
-            s = SEUILS[d["ticker"]]
-            if s["type"] not in types: continue
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s["type"] not in ["CTO", "CTO-US"]: continue
+
+        geo_bonus  = geo_scores.get(d["ticker"], 0)
+        cap_sc, _  = score_capitol(d["ticker"], capitol_trades)
+        score_a = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
+        score_v = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
+
+        # Signal achat fort
+        if score_a >= seuil_score:
+            signaux_forts.append({
+                "ticker": d["ticker"], "nom": s["nom"],
+                "type": "ACHAT", "score": score_a,
+                "cours": d["cours"], "rsi": d.get("rsi"),
+                "rsi_niveau": d.get("rsi_niveau",""),
+                "variation": d["variation"]
+            })
+        # Signal vente fort
+        elif score_v >= seuil_score:
+            signaux_forts.append({
+                "ticker": d["ticker"], "nom": s["nom"],
+                "type": "VENTE", "score": score_v,
+                "cours": d["cours"], "rsi": d.get("rsi"),
+                "rsi_niveau": d.get("rsi_niveau",""),
+                "variation": d["variation"]
+            })
+        # RSI critique toujours signale
+        elif d.get("rsi_niveau") == "CRITIQUE":
+            signaux_forts.append({
+                "ticker": d["ticker"], "nom": s["nom"],
+                "type": "RSI CRITIQUE", "score": score_a,
+                "cours": d["cours"], "rsi": d.get("rsi"),
+                "rsi_niveau": "CRITIQUE",
+                "variation": d["variation"]
+            })
+
+        # Alertes dividende
+        div_warn = protection_dividende(d["ticker"])
+        if div_warn and "NE PAS VENDRE" in div_warn:
+            alertes_seuil.append("💰 " + s["nom"] + " : " + div_warn)
+
+    # Si aucun signal et pas force → silence
+    if not signaux_forts and not force:
+        print("[SCAN] Aucun signal — silence conserve")
+        return
+
+    # ── Construire le message ────────────────────────────────
+    sent_emoji = "🟢" if sentiment == "HAUSSIER" else "🔴" if sentiment == "BAISSIER" else "🟡"
+
+    # Macro
+    macro_lines = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s["type"] in ["INDEX", "MATIERES"]:
             f = "🟢" if d["variation"] >= 0 else "🔴"
+            macro_lines.append("{} {} {} {}{}%".format(
+                f, s["nom"], d["cours"],
+                "+" if d["variation"]>=0 else "", d["variation"]))
 
-            if s["type"] in ["INDEX", "MATIERES"]:
-                bloc.append("{} <b>{}</b> {} {}{}%".format(
-                    f, s["nom"], d["cours"],
-                    "+" if d["variation"]>=0 else "", d["variation"]))
-            else:
-                pv_ligne = calcul_pv(d["ticker"], d["cours"])
-                pv_str   = " <i>{:+.0f}EUR</i>".format(pv_ligne) if pv_ligne is not None else ""
-                rsi_str  = rsi_emoji(d.get("rsi"), d.get("rsi_niveau"))
-                geo_str  = geo_emoji(d["ticker"], geo_scores)
-                cap_str  = capitol_emoji(d["ticker"], capitol_trades)
+    # Portefeuille CTO complet
+    ptf_lines = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s["type"] not in ["CTO", "CTO-US"]: continue
+        f = "🟢" if d["variation"] >= 0 else "🔴"
+        pv_ligne = calcul_pv(d["ticker"], d["cours"])
+        pv_str   = " <i>{:+.0f}EUR</i>".format(pv_ligne) if pv_ligne is not None else ""
+        rsi_str  = rsi_emoji(d.get("rsi"), d.get("rsi_niveau"))
+        geo_b    = geo_scores.get(d["ticker"], 0)
+        cap_sc2, _ = score_capitol(d["ticker"], capitol_trades)
+        score_a2 = min(130, d.get("score_achat",0) + max(0,geo_b) + max(0,cap_sc2))
+        score_v2 = min(130, d.get("score_vente",0) + max(0,-geo_b) + max(0,-cap_sc2))
+        sc_str   = score_emoji(score_a2, score_v2)
+        geo_str2 = geo_emoji(d["ticker"], geo_scores)
+        div_w    = protection_dividende(d["ticker"])
+        div_str2 = " 💰{}j".format(
+            (datetime.strptime(DIVIDENDES[d["ticker"]]["date_detachement"],"%Y-%m-%d").date()
+             - date.today()).days) if div_w and "DANS" in div_w else ""
 
-                geo_bonus = geo_scores.get(d["ticker"], 0)
-                cap_sc, _ = score_capitol(d["ticker"], capitol_trades)
-                score_a = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
-                score_v = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
-                score_str = score_emoji(score_a, score_v)
+        ptf_lines.append("{} <b>{}</b> {}EUR {}{}%{}{}{}{}".format(
+            f, s["nom"], d["cours"],
+            "+" if d["variation"]>=0 else "", d["variation"],
+            pv_str, rsi_str, sc_str, geo_str2) + div_str2)
 
-                t1m_str  = " T1M:{:+.1f}%".format(d["tendance_1m"]) if d.get("tendance_1m") is not None else ""
-                macd_str = " MACD:{}".format(d.get("macd_croise","")) if d.get("macd_croise") not in ["NEUTRE","INCONNU",None] else ""
+    # Surveillance luxe + ADP
+    watch_luxe = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s["type"] == "WATCH" and s["secteur"] in ["Luxe", "Infrastructure"]:
+            f = "🟢" if d["variation"] >= 0 else "🔴"
+            watch_luxe.append("{} <b>{}</b> {} {}{}%".format(
+                f, s["nom"], d["cours"],
+                "+" if d["variation"]>=0 else "", d["variation"]))
 
-                # Protection dividende
-                div_warn = protection_dividende(d["ticker"])
-                div_str  = "\n  💰 " + div_warn if div_warn else ""
-
-                l = "{} <b>{}</b> {}EUR {}{}%{}{}{}{}{}{}{}".format(
-                    f, s["nom"], d["cours"],
-                    "+" if d["variation"]>=0 else "", d["variation"],
-                    pv_str, rsi_str, score_str, t1m_str, macd_str, geo_str, cap_str)
-
-                if d.get("rsi_niveau") == "CRITIQUE":
-                    l += "\n  🆘 RSI CRITIQUE — rebond imminent possible"
-                    alertes_seuil.append("🆘 {} RSI CRITIQUE ({})".format(s["nom"], d.get("rsi","")))
-
-                if div_str:
-                    l += div_str
-                    alertes_seuil.append(div_warn)
-
-                if s.get("achat") and d["cours"] <= s["achat"]:
-                    l += "\n  🎯 Zone achat !"
-                    alertes_seuil.append("🎯 {} zone achat".format(s["nom"]))
-                if s.get("vente") and d["cours"] >= s["vente"]:
-                    l += "\n  💰 Zone vente !"
-                    alertes_seuil.append("💰 {} zone vente".format(s["nom"]))
-
-                bloc.append(l)
-
-        if bloc:
-            lignes_msg.append("\n<b>{}</b>\n".format(titre) + "\n".join(bloc))
-
-    # Bloc geopolitique
-    geo_bloc = ""
-    if geo_themes:
-        geo_bloc = "\n🌍 <b>Geopolitique :</b> " + ", ".join(geo_themes[:5])
-        for ticker, score in sorted(geo_scores.items(), key=lambda x: abs(x[1]), reverse=True)[:3]:
-            if ticker in SEUILS and abs(score) >= 10:
-                emoji_g = "🟢" if score > 0 else "🔴"
-                geo_bloc += "\n  {} {} {:+d}pts".format(emoji_g, SEUILS[ticker]["nom"], score)
-
-    # Bloc Capitol Trades
-    capitol_bloc = ""
-    if capitol_trades:
-        capitol_bloc = "\n🏛 <b>Capitol Trades :</b> "
-        for t in capitol_trades[:3]:
-            emoji_c = "🟢" if any(w in t["action"].lower() for w in ["purchase","buy","bought"]) else "🔴"
-            capitol_bloc += "\n  {} {} {} {}".format(emoji_c, t["politician"], t["action"], t["ticker"])
-
-    analyse = analyse_claude(donnees_ok, moment, news_p, news_m, sentiment,
+    # Analyse Claude enrichie
+    analyse = analyse_claude(donnees_ok, "signal", news_p, news_m, sentiment,
                               geo_scores, geo_themes, capitol_trades)
 
-    news_bloc = ""
-    if news_p or news_m:
-        news_bloc = "\n📰 <b>News :</b>\n" + "\n".join(
-            ["• " + n[:80] for n in (news_p + news_m)[:3]]) + "\n"
+    # Bloc signaux
+    sig_lines = []
+    for sig in signaux_forts:
+        emoji_s = "🎯" if sig["type"] == "ACHAT" else "⚠️" if sig["type"] == "VENTE" else "🆘"
+        sig_lines.append("{} <b>{}</b> {} | {}EUR | RSI:{} | Score:{}".format(
+            emoji_s, sig["nom"], sig["type"],
+            sig["cours"], sig["rsi"], sig["score"]))
 
-    alertes_bloc = "\n🚨 " + " | ".join(set(alertes_seuil)) + "\n" if alertes_seuil else ""
-    emoji = "🌅" if moment == "matin" else "🌆"
+    geo_bloc = ""
+    if geo_themes:
+        geo_bloc = "\n🌍 <b>Geo :</b> " + ", ".join(geo_themes[:4])
+        top_geo = sorted(geo_scores.items(), key=lambda x: abs(x[1]), reverse=True)[:2]
+        for ticker, sc in top_geo:
+            if ticker in SEUILS and abs(sc) >= 15:
+                g_e = "🟢" if sc > 0 else "🔴"
+                geo_bloc += " | {} {} {:+d}pts".format(g_e, SEUILS[ticker]["nom"], sc)
 
-    msg = ("{} <b>Analyse {} — {}</b>\n"
-           "{} Sentiment : <b>{}</b> 💰 PV : <b>{:+.0f}EUR</b>\n"
+    luxe_bloc = ""
+    if watch_luxe:
+        luxe_bloc = "\n👜 <b>Luxe/ADP :</b>\n" + "\n".join(watch_luxe)
+
+    div_bloc = "\n🚨 " + " | ".join(alertes_seuil) if alertes_seuil else ""
+
+    emoji_msg = "🚨" if signaux_forts and not force else "📊"
+    titre = "SIGNAL D'ACTION" if signaux_forts and not force else "ANALYSE MANUELLE"
+
+    msg = ("{} <b>{} — {}</b>\n"
+           "{} Sentiment : <b>{}</b> | PV : <b>{:+.0f}EUR</b>\n"
            "――――――――――――――――――――――\n"
-           "{}\n"
-           "――――――――――――――――――――――"
-           "{}{}{}{}\n"
+           "<b>Marches :</b> {}\n"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v10.3 :</b>\n{}\n"
+           "<b>Portefeuille :</b>\n{}\n"
+           "{}{}{}"
            "――――――――――――――――――――――\n"
-           "<i>Reponds ici | 'backtest' | 'geo' | 'capitol' | 'ia'</i>").format(
-        emoji, moment.upper(), now,
+           "{}"
+           "――――――――――――――――――――――\n"
+           "🤖 <b>Agent v10.5 :</b>\n{}\n"
+           "――――――――――――――――――――――\n"
+           "<i>Reponds ici | 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'</i>").format(
+        emoji_msg, titre, now,
         sent_emoji, sentiment, pv,
-        "\n".join(lignes_msg),
-        news_bloc, alertes_bloc, geo_bloc, capitol_bloc,
+        " | ".join(macro_lines),
+        "\n".join(ptf_lines),
+        "\n\n<b>Signaux :</b>\n" + "\n".join(sig_lines) + "\n" if sig_lines else "",
+        geo_bloc, luxe_bloc + "\n" if luxe_bloc else "",
+        div_bloc + "\n" if div_bloc else "",
         analyse)
 
     send_telegram(msg)
-    m = load_memoire()
-    m["derniere_analyse"] = now
-    save_memoire(m)
-    print("[" + now + "] OK")
+    m_mem["dernier_scan"] = now
+    save_memoire(m_mem)
+    print("[" + now + "] Message envoye — {} signaux".format(len(signaux_forts)))
 
 # ============================================================
 # ALERTES INTRADAY
@@ -1104,7 +1189,13 @@ def check_alertes_intraday():
                "<i>Reponds directement ici !</i>")
         send_telegram(msg)
 
-def analyse_matin(): analyse_complete("matin")
+def analyse_matin():
+    """Scan des signaux — envoie uniquement si action requise"""
+    analyse_complete(force=False)
+
+def analyse_forcee():
+    """Commande manuelle 'analyse' — envoie toujours"""
+    analyse_complete(force=True)
 
 # ============================================================
 # AUTO-OPTIMISATION HEBDOMADAIRE — Chaque lundi 08:30 Paris
@@ -1357,28 +1448,30 @@ if __name__ == "__main__":
     EUR_USD_RATE = get_eur_usd()
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v10.4")
-    print(" Auto-optimisation hebdomadaire activee")
-    print(" Heure Paris : 09:00 analyse | 08:30 lundi optim")
-    print(" Alertes 3h (09h00-17h00 Paris)")
+    print(" Agent Trading Matthieu v10.5")
+    print(" Mode signal uniquement — pas de spam")
+    print(" Scan toutes les 2h | Weekend OFF | Lundi optim")
     print("=" * 55)
 
     send_telegram(
-        "🚀 <b>Agent Trading v10.4 — Auto-optimisation !</b>\n\n"
-        "✅ Auto-optimisation chaque lundi 08h30\n"
-        "✅ Backtest automatique + ajustement des parametres\n"
-        "✅ Rapport hebdomadaire : diagnostic + regles apprises\n"
-        "✅ Garde-fous : ajustements dans limites raisonnables\n"
-        "✅ Historique 10 semaines conserve en memoire\n"
-        "✅ Prompt ameliore : decision directe si signal + cash\n\n"
-        "Commandes : reponds | 'backtest' | 'geo' | 'capitol' | 'ia'"
+        "🚀 <b>Agent Trading v10.5 — Mode signal uniquement !</b>\n\n"
+        "✅ Messages uniquement si action requise (fini le spam)\n"
+        "✅ Pas de message le weekend\n"
+        "✅ Scan silencieux toutes les 2h en semaine\n"
+        "✅ ADP Aeroports ajoute en surveillance\n"
+        "✅ Luxe francais : LVMH, Hermes, Kering surveilles\n"
+        "✅ GEO_IMPACT : luxe, tourisme, brand finance, souverainete\n"
+        "✅ Auto-optimisation lundi 08h30 conservee\n\n"
+        "Commandes : 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'"
     )
 
-    schedule.every().day.at("07:00").do(analyse_matin)
-    schedule.every(180).minutes.do(check_alertes_intraday)  # toutes les 3h
-    schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
-    # Auto-optimisation : chaque lundi a 08:30 Paris (06:30 UTC)
+    # Scan signaux toutes les 2h en semaine (09h-17h Paris = 07h-15h UTC)
+    # Envoie UNIQUEMENT si signal d'action detecte
+    schedule.every(120).minutes.do(analyse_matin)
+    # Auto-optimisation chaque lundi 08h30 Paris (06h30 UTC)
     schedule.every().monday.at("06:30").do(auto_optimisation)
+    # Mise a jour taux EUR/USD toutes les heures
+    schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
 
     # Rattrapage au demarrage si analyse matin manquee (Railway redemarrage)
     now_paris = datetime.now(PARIS_TZ)
