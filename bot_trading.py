@@ -1433,27 +1433,17 @@ if __name__ == "__main__":
         "Commandes : 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'"
     )
 
-    # Scan toutes les 30min — mais envoie UNIQUEMENT si marche ouvert ET signal detecte
-    schedule.every(30).minutes.do(analyse_matin)
+    # Scan toutes les 30min — envoie UNIQUEMENT si marche ouvert ET signal detecte
+    # next_run est fixe a 30min apres le demarrage pour eviter un declenchement immediat
+    job_scan = schedule.every(30).minutes.do(analyse_matin)
+    job_scan.next_run = datetime.now() + __import__('datetime').timedelta(minutes=30)
+
     # Auto-optimisation chaque lundi 08h30 Paris (06h30 UTC)
     schedule.every().monday.at("06:30").do(auto_optimisation)
     # Mise a jour taux EUR/USD toutes les heures
     schedule.every().hour.do(lambda: globals().update({"EUR_USD_RATE": get_eur_usd()}))
 
-    # Rattrapage au demarrage si analyse matin manquee (Railway redemarrage)
-    now_paris = datetime.now(PARIS_TZ)
-    heure = now_paris.hour
-    minute = now_paris.minute
-    jour   = now_paris.weekday()
-
-    if jour < 5:
-        # Matin rate : demarrage entre 9h05 et 10h30 Paris
-        if (heure == 9 and minute >= 5) or (heure == 10 and minute <= 30):
-            print("[RATTRAPAGE] Analyse matin manquee — envoi immediat")
-            time.sleep(5)
-            analyse_matin()
-
     while True:
         schedule.run_pending()
         check_messages_telegram()
-        time.sleep(10)
+        time.sleep(60)  # Verifier toutes les 60s suffit largement
