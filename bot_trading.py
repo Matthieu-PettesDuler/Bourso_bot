@@ -955,7 +955,13 @@ def analyse_complete(moment="scan", force=False):
 
     # Pas d'envoi le weekend sauf si force
     if now_paris.weekday() >= 5 and not force:
-        print("[SCAN] Weekend — pas d'analyse")
+        print("[SCAN] Weekend — silence")
+        return
+
+    # Pas d'envoi hors heures de marche sauf si force
+    if not marche_ouvert() and not force:
+        print("[SCAN] Marche ferme ({}) — silence".format(
+            now_paris.strftime("%H:%M")))
         return
 
     now = now_paris.strftime("%d/%m/%Y %H:%M")
@@ -1133,69 +1139,30 @@ def analyse_complete(moment="scan", force=False):
     save_memoire(m_mem)
     print("[" + now + "] Message envoye — {} signaux".format(len(signaux_forts)))
 
-# ============================================================
-# ALERTES INTRADAY
-# ============================================================
-def check_alertes_intraday():
+def marche_ouvert():
+    """
+    Retourne True uniquement si le marché est ouvert :
+    - Lundi à vendredi uniquement
+    - Entre 09h15 et 17h30 heure Paris (Euronext)
+    - Pas le weekend
+    """
     now = datetime.now(PARIS_TZ)
-    if now.weekday() >= 5: return
-    # Alertes toutes les 3h dans la plage marche ouvert : 09h00 → 17h00 Paris
-    if now.hour < 9 or now.hour >= 17: return
-
-    tickers = ["ORA.PA","CAP.PA","TTE.PA","BNP.PA","AIR.PA",
-                "SAF.PA","HO.PA","AM.PA","SU.PA","MSFT","^FCHI"]
-    alertes = []
-    action = "\n⚡ <b>Action :</b> Reponds ici pour analyse immediate."
-
-    _, _, geo_scores, _ = get_news_et_geo()
-    capitol_trades = get_capitol_trades()
-
-    for ticker in tickers:
-        d = calcul_indicateurs(ticker)
-        if not d or abs(d["variation"]) < SEUIL_ALERTE: continue
-        s = SEUILS.get(ticker, {})
-        f = "📈" if d["variation"] > 0 else "📉"
-        pv = calcul_pv(ticker, d["cours"])
-
-        geo_bonus = geo_scores.get(ticker, 0)
-        cap_sc, _ = score_capitol(ticker, capitol_trades)
-        score_a = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
-        score_v = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
-        score_str = " 🎯Score:{}".format(score_a) if score_a >= 35 else ""
-        cap_str = " 🏛{:+d}".format(cap_sc) if abs(cap_sc) >= 20 else ""
-
-        alertes.append("{} <b>{}</b> {}EUR {}{}% RSI:{}{} Vol:{}{}{}".format(
-            f, s.get("nom", ticker), d["cours"],
-            "+" if d["variation"]>=0 else "", d["variation"],
-            d.get("rsi","?"), score_str, d.get("vol_signal","?"),
-            " 🌍geo{:+d}".format(geo_bonus) if abs(geo_bonus) >= 10 else "",
-            cap_str))
-
-        if d.get("rsi_niveau") == "CRITIQUE":
-            action = "\n⚡ <b>RSI CRITIQUE ({}) !</b> Score:{}. Reponds ici.".format(d.get("rsi",""), score_a)
-        elif d["variation"] <= -5.0:
-            action = "\n⚡ Baisse forte. Ne vends pas panique. Score achat:{}.".format(score_a)
-        elif score_a >= 50:
-            action = "\n⚡ 🎯 SIGNAL FORT achat (score {}). Reponds ici pour valider.".format(score_a)
-        elif score_v >= 50:
-            action = "\n⚡ ⚠️ SIGNAL FORT vente (score {}). Reponds ici pour decider.".format(score_v)
-        elif d.get("rsi") and d["rsi"] > 70:
-            action = "\n⚡ RSI surchete ({}) — attention correction.".format(d["rsi"])
-
-    if alertes:
-        msg = ("🚨 <b>ALERTE — " + now.strftime("%H:%M") + "</b>\n"
-               "――――――――――――――――――――――\n" +
-               "\n".join(alertes) + action +
-               "\n――――――――――――――――――――――\n"
-               "<i>Reponds directement ici !</i>")
-        send_telegram(msg)
+    if now.weekday() >= 5:      return False  # Samedi/Dimanche
+    if now.hour < 9:            return False  # Avant ouverture
+    if now.hour == 9 and now.minute < 15: return False  # Avant 9h15
+    if now.hour > 17:           return False  # Apres fermeture
+    if now.hour == 17 and now.minute >= 30: return False  # Apres 17h30
+    return True
 
 def analyse_matin():
-    """Scan des signaux — envoie uniquement si action requise"""
+    """Scan des signaux — envoie UNIQUEMENT si marche ouvert ET signal d'action"""
+    if not marche_ouvert():
+        print("[SCAN] Marche ferme — silence")
+        return
     analyse_complete(force=False)
 
 def analyse_forcee():
-    """Commande manuelle 'analyse' — envoie toujours"""
+    """Commande manuelle 'analyse' — envoie toujours peu importe l'heure"""
     analyse_complete(force=True)
 
 # ============================================================
@@ -1466,9 +1433,8 @@ if __name__ == "__main__":
         "Commandes : 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'"
     )
 
-    # Scan signaux toutes les 2h en semaine (09h-17h Paris = 07h-15h UTC)
-    # Envoie UNIQUEMENT si signal d'action detecte
-    schedule.every(120).minutes.do(analyse_matin)
+    # Scan toutes les 30min — mais envoie UNIQUEMENT si marche ouvert ET signal detecte
+    schedule.every(30).minutes.do(analyse_matin)
     # Auto-optimisation chaque lundi 08h30 Paris (06h30 UTC)
     schedule.every().monday.at("06:30").do(auto_optimisation)
     # Mise a jour taux EUR/USD toutes les heures
