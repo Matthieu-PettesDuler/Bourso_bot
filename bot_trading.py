@@ -13,7 +13,7 @@ Nouveautes vs v10.4 :
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 import pytz
 
@@ -1405,11 +1405,6 @@ def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
     save_memoire(m)
     print("[DECISION] Enregistree : {} {} a {}EUR".format(action, valeur, prix))
 
-from datetime import timedelta
-
-# ============================================================
-# BOUCLE PRINCIPALE
-# ============================================================
 if __name__ == "__main__":
     if not TELEGRAM_TOKEN or not ANTHROPIC_API_KEY:
         print("[ERREUR] Variables Railway manquantes")
@@ -1423,15 +1418,30 @@ if __name__ == "__main__":
     print(" Scan toutes les 30min | Weekend OFF | Lundi optim")
     print("=" * 55)
 
-    send_telegram(
-        "🚀 <b>Agent Trading v10.5 — Mode signal uniquement !</b>\n\n"
-        "✅ Messages uniquement si signal d'action detecte\n"
-        "✅ Silence total le weekend et hors heures marche\n"
-        "✅ Scan toutes les 30min (9h15-17h30 Paris)\n"
-        "✅ ADP + Luxe (LVMH/Hermes/Kering) surveilles\n"
-        "✅ Auto-optimisation lundi 08h30\n\n"
-        "Commandes : 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'"
-    )
+    # Envoyer le message de demarrage UNE SEULE FOIS
+    # Si le fichier verrou existe et date de moins de 5min → pas de message
+    verrou = Path("/tmp/bot_started.lock")
+    envoyer_demarrage = True
+    try:
+        if verrou.exists():
+            age_secondes = (datetime.now(PARIS_TZ).timestamp() -
+                           verrou.stat().st_mtime)
+            if age_secondes < 300:  # Moins de 5 minutes → crash loop detecte
+                envoyer_demarrage = False
+                print("[INIT] Crash loop detecte — message demarrage supprime")
+    except:
+        pass
+
+    if envoyer_demarrage:
+        verrou.write_text(datetime.now(PARIS_TZ).isoformat())
+        send_telegram(
+            "🚀 <b>Agent Trading v10.5 — Mode signal uniquement !</b>\n\n"
+            "Scan toutes les 30min (9h15-17h30 Paris)\n"
+            "Silence total le weekend et hors heures marche\n\n"
+            "Commandes : 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'"
+        )
+    else:
+        verrou.write_text(datetime.now(PARIS_TZ).isoformat())
 
     # Timestamps manuels — evite tous les bugs de schedule
     dernier_scan     = datetime.now(PARIS_TZ) - timedelta(minutes=31)  # Pret immediatement
@@ -1476,4 +1486,3 @@ if __name__ == "__main__":
 
         # Pause 60s — UNE seule iteration par minute, pas de double declenchement
         time.sleep(60)
-    
