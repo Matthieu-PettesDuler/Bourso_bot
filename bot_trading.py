@@ -1029,9 +1029,57 @@ def analyse_complete(moment="scan", force=False):
         if div_warn and "NE PAS VENDRE" in div_warn:
             alertes_seuil.append("💰 " + s["nom"] + " : " + div_warn)
 
-    # Si aucun signal et pas force → silence
+    # ── Filtrer les signaux contradictoires AVANT envoi ─────
+    # Recuperer variation WTI et or pour verifications
+    wti_variation  = next((d["variation"] for d in donnees_ok
+                           if d["ticker"] == "CL=F"), None)
+    or_variation   = next((d["variation"] for d in donnees_ok
+                           if d["ticker"] == "GC=F"), None)
+
+    signaux_valides = []
+    signaux_rejetes = []
+
+    for sig in signaux_forts:
+        ticker = sig["ticker"]
+        raison_rejet = None
+
+        # TotalEnergies : invalide si WTI baisse
+        if ticker == "TTE.PA" and sig["type"] == "ACHAT":
+            if wti_variation is not None and wti_variation < -1.0:
+                raison_rejet = "WTI -{:.1f}% contredit signal achat Total".format(
+                    abs(wti_variation))
+
+        # Defense (Thales/Dassault/Safran) : invalide si RSI pas assez bas
+        if ticker in ["HO.PA", "AM.PA", "SAF.PA"] and sig["type"] == "ACHAT":
+            rsi = sig.get("rsi")
+            if rsi and rsi > 30:
+                raison_rejet = "RSI {} trop eleve (>30) pour signal defense".format(
+                    round(rsi, 1))
+
+        # RSI CRITIQUE uniquement si vraiment < 25
+        if sig["type"] == "RSI CRITIQUE":
+            rsi = sig.get("rsi")
+            if rsi and rsi > 25:
+                raison_rejet = "RSI {} pas assez critique (seuil 25)".format(
+                    round(rsi, 1))
+
+        if raison_rejet:
+            signaux_rejetes.append((sig["nom"], raison_rejet))
+            print("[FILTRE] Signal {} {} rejete : {}".format(
+                sig["type"], sig["nom"], raison_rejet))
+        else:
+            signaux_valides.append(sig)
+
+    # Remplacer signaux_forts par signaux_valides
+    signaux_forts = signaux_valides
+
+    # Si plus aucun signal valide apres filtrage → silence
     if not signaux_forts and not force:
-        print("[SCAN] Aucun signal — silence conserve")
+        if signaux_rejetes:
+            print("[SCAN] {} signal(s) rejete(s) par anti-contradiction — silence".format(
+                len(signaux_rejetes)))
+        else:
+            print("[SCAN] Aucun signal — silence conserve")
         return
 
     # ── Construire le message ────────────────────────────────
