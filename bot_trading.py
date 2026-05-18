@@ -915,8 +915,8 @@ STRUCTURE DE TA REPONSE :
 
 🎯 CE QUE TU DOIS FAIRE AUJOURD'HUI
 → Si achat justifie (SANS contradiction) : ACHAT | VALEUR | 1 action | PRIX EUR | type ordre | raison en 1 phrase | cash restant
-→ Si signal contradictoire : "Rien a faire — signal {X} contredit par {Y}. Prochain declencheur : [niveau precis ou date]"
-→ Si vraiment rien : "Rien a faire — [raison]. Prochain declencheur : [niveau ou date exacte]"
+→ Si signal contradictoire : "Rien a faire — signal contredit par indicateur technique. Prochain declencheur : niveau precis ou date"
+→ Si vraiment rien : "Rien a faire — raison precise. Prochain declencheur : niveau ou date exacte"
 
 ⚠️ RISQUE DU JOUR
 [1 phrase precise sur le risque principal aujourd'hui]""".format(
