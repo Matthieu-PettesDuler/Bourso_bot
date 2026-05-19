@@ -936,7 +936,7 @@ STRUCTURE DE TA REPONSE :
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=400,
+            max_tokens=500,
             messages=[{"role": "user", "content": prompt}])
         return msg.content[0].text
     except Exception as e:
@@ -1042,6 +1042,14 @@ def analyse_complete(moment="scan", force=False):
     for sig in signaux_forts:
         ticker = sig["ticker"]
         raison_rejet = None
+
+        # Capgemini : invalide si RSI > 45 (pas assez survendu)
+        # Le score geo seul ne justifie pas un achat
+        if ticker == "CAP.PA" and sig["type"] == "ACHAT":
+            rsi = sig.get("rsi")
+            if rsi and rsi > 45:
+                raison_rejet = "RSI Capgemini {} trop eleve — score geo seul insuffisant".format(
+                    round(rsi, 1))
 
         # TotalEnergies : invalide si WTI baisse
         if ticker == "TTE.PA" and sig["type"] == "ACHAT":
