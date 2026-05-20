@@ -1081,7 +1081,7 @@ def analyse_complete(moment="scan", force=False):
     # Remplacer signaux_forts par signaux_valides
     signaux_forts = signaux_valides
 
-    # Si plus aucun signal valide apres filtrage → silence
+    # Si plus aucun signal valide apres filtrage → silence (sauf si force)
     if not signaux_forts and not force:
         if signaux_rejetes:
             print("[SCAN] {} signal(s) rejete(s) par anti-contradiction — silence".format(
