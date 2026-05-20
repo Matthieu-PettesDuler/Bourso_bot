@@ -331,9 +331,10 @@ def send_telegram(message):
 # ECOUTE MESSAGES TELEGRAM
 # ============================================================
 last_update_id = None
+bot_start_time = None  # Timestamp de demarrage pour ignorer les vieux messages
 
 def check_messages_telegram():
-    global last_update_id
+    global last_update_id, bot_start_time
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/getUpdates"
     params = {"timeout": 1}
     if last_update_id:
@@ -348,6 +349,13 @@ def check_messages_telegram():
         msg = update.get("message", {})
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
+
+        # Ignorer les messages envoyes avant le demarrage du bot
+        msg_date = msg.get("date", 0)
+        if bot_start_time and msg_date < bot_start_time:
+            print("[MSG] Ignore (avant demarrage) : " + text[:30])
+            continue
+
         if not text or chat_id != str(TELEGRAM_CHAT_ID):
             continue
         print("[MSG] " + text)
@@ -1467,7 +1475,9 @@ if __name__ == "__main__":
         exit(1)
 
     EUR_USD_RATE = get_eur_usd()
+    bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
+    print("[INIT] Demarrage timestamp : {}".format(bot_start_time))
     print("=" * 55)
     print(" Agent Trading Matthieu v10.5")
     print(" Mode signal uniquement — silence si marche ferme")
