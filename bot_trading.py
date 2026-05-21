@@ -2193,5 +2193,6 @@ if __name__ == "__main__":
         # ── Ecoute messages Telegram ──
         check_messages_telegram()
 
-        # Pause 60s
-        time.sleep(60)
+        # Pause 3s — reactivite Telegram immediate
+        # Les scans sont proteges par timestamps, pas de double declenchement
+        time.sleep(3)
