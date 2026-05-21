@@ -829,7 +829,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=150,
+            max_tokens=250,
             system=system,
             messages=HISTORIQUE_CONVERSATION
         )
