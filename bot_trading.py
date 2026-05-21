@@ -841,12 +841,13 @@ def send_telegram(message):
 # ECOUTE MESSAGES TELEGRAM
 # ============================================================
 last_update_id = None
-bot_start_time = None  # Timestamp de demarrage pour ignorer les vieux messages
+bot_start_time = None
+messages_traites = set()  # Evite le double traitement
 
 def check_messages_telegram():
-    global last_update_id, bot_start_time
+    global last_update_id, bot_start_time, messages_traites
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/getUpdates"
-    params = {"timeout": 1}
+    params = {"timeout": 0, "limit": 10}  # timeout=0 = non-bloquant
     if last_update_id:
         params["offset"] = last_update_id
     try:
@@ -855,12 +856,22 @@ def check_messages_telegram():
     except:
         return
     for update in updates.get("result", []):
-        last_update_id = update["update_id"] + 1
+        update_id = update["update_id"]
+        # Marquer comme traite IMMEDIATEMENT pour eviter double traitement
+        last_update_id = update_id + 1
+        # Skip si deja traite
+        if update_id in messages_traites:
+            continue
+        messages_traites.add(update_id)
+        # Nettoyer le set si trop grand
+        if len(messages_traites) > 100:
+            messages_traites = set(list(messages_traites)[-50:])
+
         msg = update.get("message", {})
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
 
-        # Ignorer les messages envoyes avant le demarrage du bot
+        # Ignorer les messages avant le demarrage
         msg_date = msg.get("date", 0)
         if bot_start_time and msg_date < bot_start_time:
             print("[MSG] Ignore (avant demarrage) : " + text[:30])
