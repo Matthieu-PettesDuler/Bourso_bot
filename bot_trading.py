@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.5
-Nouveautes vs v10.4 :
-- ADP (Groupe Aeroports de Paris) ajoute en surveillance (ADP.PA)
-- Luxe francais ajoute en surveillance : LVMH (MC.PA), Hermes (RMS.PA), Kering (KER.PA)
-- GEO_IMPACT enrichi : brand finance, souverainete industrielle, luxe, aeroport, tourisme
-- Pas d'analyse automatique le matin : le bot envoie UNIQUEMENT si signal d'action detecte
-- Pas d'analyse le weekend (samedi + dimanche)
-- Analyse hebdomadaire remplacee par : envoi uniquement si score >= seuil ou RSI critique
-- Auto-optimisation lundi 08h30 conservee
-- Commande 'analyse' : force une analyse manuelle a tout moment
+Agent Trading Matthieu v10.6 - Intelligence Complete
+Nouveautes vs v10.5 :
+- Recherche web active via Claude chaque matin
+- Decouverte autonome societes emergentes chaque lundi
+- Dialogue contextuel en temps reel
+- Position sizing dynamique (1/2/3 actions selon score)
+- Stop-loss automatique suggere si perte > 15%
+- Nouvelles valeurs : Soitec, STMicro, Veolia, Eutelsat, McPhy
+- Score unifie : RSI+MACD+BB+Vol+Geo+Capitol+Web+Sentiment
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
@@ -76,6 +75,13 @@ SEUILS = {
     "MC.PA":   {"nom": "LVMH",              "achat": 450.00,"vente": 750.00,"type": "WATCH",   "secteur": "Luxe"},
     "RMS.PA":  {"nom": "Hermes",            "achat": 2000.00,"vente":3500.00,"type": "WATCH",  "secteur": "Luxe"},
     "KER.PA":  {"nom": "Kering",            "achat": 200.00,"vente": 380.00,"type": "WATCH",   "secteur": "Luxe"},
+    # Nouvelles valeurs emergentes v10.6
+    "SOI.PA":  {"nom": "Soitec",            "achat": 80.00, "vente": 160.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
+    "STM.PA":  {"nom": "STMicroelectronics","achat": 15.00, "vente": 35.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
+    "VIE.PA":  {"nom": "Veolia",            "achat": 25.00, "vente": 40.00, "type": "WATCH",   "secteur": "Eau/Environnement"},
+    "ETL.PA":  {"nom": "Eutelsat",          "achat": 3.00,  "vente": 8.00,  "type": "WATCH",   "secteur": "Spatial"},
+    "MCPHY.PA":{"nom": "McPhy Energy",      "achat": 5.00,  "vente": 15.00, "type": "WATCH",   "secteur": "Hydrogene"},
+    "AIL.PA":  {"nom": "Air Liquide",       "achat": 140.00,"vente": 200.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
     "NVDA":    {"nom": "Nvidia",            "achat": 100.00,"vente": 220.00,"type": "WATCH-US","secteur": "IA/Puces"},
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
@@ -106,6 +112,12 @@ CORRELATIONS = {
     "MC.PA":  "LVMH = barometre du luxe mondial, sensible consommation Chine et tourisme",
     "RMS.PA": "Hermes = luxe ultra-premium, resilient en crise, pricing power exceptionnel",
     "KER.PA": "Kering = Gucci/YSL, plus sensible aux cycles eco que LVMH et Hermes",
+    "SOI.PA": "Soitec = semi-conducteurs SOI, fournisseur Apple/TSMC, beta eleve, cycles semis",
+    "STM.PA": "STMicro = semi-conducteurs europeens, automobile electrique et IoT",
+    "VIE.PA": "Veolia = eau et dechets, valeur defensive ESG, croissance reguliere",
+    "ETL.PA": "Eutelsat = satellites LEO, concurrence SpaceX Starlink, tres speculatif",
+    "MCPHY.PA":"McPhy = electrolyseurs hydrogene, subventions europeennes, tres volatile",
+    "AIL.PA": "Air Liquide = gaz industriels et hydrogene, dividende stable depuis 40 ans",
 }
 
 # ============================================================
@@ -178,6 +190,26 @@ GEO_IMPACT = {
     "industrie":    {"AIR.PA": +5, "SAF.PA": +5},
     "stock act":    {"MSFT": +5, "NVDA": +5},
     "pelosi":       {"MSFT": +10, "NVDA": +10},
+    # Semi-conducteurs
+    "semi-conducteur": {"SOI.PA": +20, "STM.PA": +20, "NVDA": +15},
+    "puce":            {"SOI.PA": +15, "STM.PA": +15, "NVDA": +10},
+    "tsmc":            {"SOI.PA": +20, "NVDA": +10},
+    "automobile electrique": {"STM.PA": +20},
+    # Hydrogene
+    "hydrogene":       {"MCPHY.PA": +25, "AIL.PA": +15, "SU.PA": +10},
+    "electrolyse":     {"MCPHY.PA": +25},
+    "energie verte":   {"MCPHY.PA": +15, "AIL.PA": +10, "SU.PA": +10},
+    "nucleaire":       {"AIL.PA": +10, "SU.PA": +5},
+    # Spatial
+    "satellite":       {"ETL.PA": +20, "AIR.PA": +5},
+    "starlink":        {"ETL.PA": -15},
+    "spacex":          {"ETL.PA": -10},
+    "espace":          {"ETL.PA": +15, "AIR.PA": +10},
+    # Eau / Environnement
+    "eau":             {"VIE.PA": +20},
+    "secheresse":      {"VIE.PA": +25},
+    "environnement":   {"VIE.PA": +10, "MCPHY.PA": +5},
+    "esg":             {"VIE.PA": +10, "SU.PA": +5},
 }
 
 # Mapping Capitol Trades tickers US → tickers portefeuille
@@ -303,6 +335,156 @@ def formatter_capitol_telegram(trades):
     return "\n".join(lignes)
 
 # ============================================================
+# RECHERCHE WEB ACTIVE v10.6
+# ============================================================
+def recherche_web_active():
+    """Claude cherche l actu impactante du jour via web search."""
+    if not ANTHROPIC_API_KEY:
+        return ""
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
+        prompt = ("Recherche les 3 nouvelles financieres importantes du {} "
+                  "pour : Thales, Dassault, Safran, TotalEnergies, Microsoft, "
+                  "Capgemini, Airbus, Orange, BNP. "
+                  "Format : bullet point societe + news + impact haussier/baissier").format(date_str)
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        return texte.strip()[:400] if texte else ""
+    except Exception as e:
+        print("[WEB] " + str(e))
+        return ""
+
+# ============================================================
+# POSITION SIZING DYNAMIQUE v10.6
+# ============================================================
+def calcul_position_size(score, cours, cash_dispo):
+    """Score 50-65 = 1 action | 65-80 = 2 | >80 = 3"""
+    if score >= 80 and cash_dispo >= cours * 3:
+        return 3
+    elif score >= 65 and cash_dispo >= cours * 2:
+        return 2
+    elif score >= 50 and cash_dispo >= cours:
+        return 1
+    return 0
+
+# ============================================================
+# STOP-LOSS AUTOMATIQUE v10.6
+# ============================================================
+def check_stop_loss(donnees_ok):
+    """Retourne les positions avec perte > 15 pct."""
+    alertes = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s.get("type") not in ["CTO","CTO-US"]: continue
+        if not s.get("px_revient"): continue
+        cours = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
+        perte = (cours - s["px_revient"]) / s["px_revient"] * 100
+        if perte <= -15:
+            alertes.append({
+                "nom": s["nom"], "ticker": d["ticker"],
+                "perte_pct": round(perte,1), "cours": cours,
+                "px_revient": s["px_revient"], "quantite": s.get("quantite",1)
+            })
+    return alertes
+
+# ============================================================
+# DECOUVERTE SOCIETES EMERGENTES v10.6
+# ============================================================
+def decouverte_societes_emergentes():
+    """Chaque lundi, Claude cherche 3 societes prometteuses."""
+    if not ANTHROPIC_API_KEY: return
+    print("[DECOUVERTE] Recherche societes emergentes...")
+    try:
+        import re
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        prompt = ("Recherche les 3 societes cotees les plus prometteuses cette semaine "
+                  "dans : IA, defense, energie verte, semi-conducteurs, spatial, hydrogene. "
+                  "Preference europeenne. Reponds UNIQUEMENT en JSON : "
+                  '[{{"nom":"X","ticker":"X.PA","secteur":"X","raison":"X","risque":"ELEVE"}}]')
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=400,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt}]
+        )
+        texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        match = re.search(r'\[.*\]', texte, re.DOTALL)
+        if not match: return
+        societes = json.loads(match.group())
+        m = load_memoire()
+        decouvertes = m.get("societes_decouvertes", [])
+        date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
+        nouvelles = []
+        for s in societes[:3]:
+            if not s.get("ticker") or s["ticker"] in SEUILS: continue
+            entry = {"date": date_str, "ticker": s["ticker"], "nom": s.get("nom",""),
+                     "secteur": s.get("secteur",""), "raison": s.get("raison",""),
+                     "risque": s.get("risque","ELEVE")}
+            nouvelles.append(entry)
+            decouvertes.append(entry)
+        m["societes_decouvertes"] = decouvertes[-20:]
+        save_memoire(m)
+        if nouvelles:
+            lignes = ["🔭 <b>Societes emergentes du lundi :</b>"]
+            for n in nouvelles:
+                e = "🔴" if n["risque"]=="ELEVE" else "🟡" if n["risque"]=="MODERE" else "🟢"
+                lignes.append("{} <b>{}</b> ({}) - {} | {}".format(
+                    e, n["nom"], n["ticker"], n["secteur"], n["raison"]))
+            lignes.append("<i>Observation uniquement</i>")
+            send_telegram("\n".join(lignes))
+    except Exception as e:
+        print("[DECOUVERTE] " + str(e))
+
+# ============================================================
+# DIALOGUE CONTEXTUEL v10.6
+# ============================================================
+HISTORIQUE_CONVERSATION = []
+
+def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
+    """Repond avec memoire de conversation et contexte marche."""
+    if not ANTHROPIC_API_KEY: return "Cle manquante."
+    global HISTORIQUE_CONVERSATION
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    ctx = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s.get("type") not in ["CTO","CTO-US"]: continue
+        pv = calcul_pv(d["ticker"], d["cours"]) or 0
+        ctx.append("{} {}EUR RSI:{} PV:{:+.0f}EUR".format(
+            s["nom"], d["cours"], d.get("rsi","?"), pv))
+    sl = check_stop_loss(donnees_ok)
+    sl_str = (" | STOP-LOSS : " + " | ".join(
+        "{} {:+.1f}%".format(x["nom"], x["perte_pct"]) for x in sl)) if sl else ""
+    HISTORIQUE_CONVERSATION.append({"role": "user", "content":
+        "MARCHE: {}{}\nACTU: {}\nQUESTION: {}".format(
+            " | ".join(ctx), sl_str,
+            web_actu[:150] if web_actu else "RAS", question_user)})
+    if len(HISTORIQUE_CONVERSATION) > 12:
+        HISTORIQUE_CONVERSATION = HISTORIQUE_CONVERSATION[-12:]
+    system = ("Agent financier de Matthieu. CTO Boursobank flat tax 30% horizon 1an. "
+              "Orange 83@10.70EUR dividende juin NE PAS VENDRE. "
+              "Thales 8@243.32EUR. Dassault 3@317.02EUR. MSFT 1@325.84EUR ordre limite. "
+              "Cash 240EUR. Risque modere-eleve accepte. Max 150 mots chiffres precis.")
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            system=system,
+            messages=HISTORIQUE_CONVERSATION
+        )
+        rep = msg.content[0].text
+        HISTORIQUE_CONVERSATION.append({"role": "assistant", "content": rep})
+        return rep
+    except Exception as e:
+        return "[Erreur : " + str(e) + "]"
+
+# ============================================================
 # TELEGRAM
 # ============================================================
 def send_telegram(message):
@@ -410,14 +592,33 @@ def check_messages_telegram():
             send_telegram(formatter_capitol_telegram(trades))
             return
 
+        if "emergent" in text.lower() or "decouverte" in text.lower() or "nouvelles societes" in text.lower():
+            decouverte_societes_emergentes()
+            return
+
+        if "stop" in text.lower() and "loss" in text.lower():
+            donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
+            donnees_ok = [d for d in donnees if d]
+            sl = check_stop_loss(donnees_ok)
+            if sl:
+                lignes = ["🛑 <b>Positions en stop-loss (perte > 15%) :</b>"]
+                for x in sl:
+                    lignes.append("🔴 <b>{}</b> : {:+.1f}% | PRU {}EUR → {}EUR | {} actions".format(
+                        x["nom"], x["perte_pct"], x["px_revient"], x["cours"], x["quantite"]))
+                send_telegram("\n".join(lignes))
+            else:
+                send_telegram("✅ Aucune position en stop-loss (seuil -15%).")
+            return
+
+        # Dialogue contextuel — toute autre question
         donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
         donnees_ok = [d for d in donnees if d]
         news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
         capitol_trades = get_capitol_trades()
         sentiment = get_sentiment(donnees_ok)
-        reponse = analyse_claude(donnees_ok, "temps reel", news_p, news_m, sentiment,
-                                  geo_scores, geo_themes, capitol_trades, question_user=text)
-        send_telegram("🤖 <b>Agent :</b>\n" + reponse)
+        web_actu = recherche_web_active()
+        reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
+        send_telegram("🤖 <b>Agent v10.6 :</b>\n" + reponse)
 
 # ============================================================
 # GEOPOLITIQUE — Extraction et scoring
@@ -990,6 +1191,13 @@ def analyse_complete(moment="scan", force=False):
     m_mem = load_memoire()
     params = m_mem.get("params", {})
     seuil_score = params.get("seuil_score", 50)
+    cash_dispo = params.get("cash_dispo", 240)  # Cash mis a jour par l utilisateur
+
+    # Recherche web active (uniquement en mode force pour economiser les tokens)
+    web_actu = recherche_web_active() if force else ""
+
+    # Verifier stop-loss
+    stop_loss_alertes = check_stop_loss(donnees_ok)
 
     # ── Detecter les signaux d'action ───────────────────────
     signaux_forts = []
@@ -1006,12 +1214,14 @@ def analyse_complete(moment="scan", force=False):
 
         # Signal achat fort
         if score_a >= seuil_score:
+            nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
                 "ticker": d["ticker"], "nom": s["nom"],
                 "type": "ACHAT", "score": score_a,
                 "cours": d["cours"], "rsi": d.get("rsi"),
                 "rsi_niveau": d.get("rsi_niveau",""),
-                "variation": d["variation"]
+                "variation": d["variation"],
+                "nb_actions": nb_actions
             })
         # Signal vente fort
         elif score_v >= seuil_score:
@@ -1020,16 +1230,19 @@ def analyse_complete(moment="scan", force=False):
                 "type": "VENTE", "score": score_v,
                 "cours": d["cours"], "rsi": d.get("rsi"),
                 "rsi_niveau": d.get("rsi_niveau",""),
-                "variation": d["variation"]
+                "variation": d["variation"],
+                "nb_actions": s.get("quantite", 1)
             })
         # RSI critique toujours signale
         elif d.get("rsi_niveau") == "CRITIQUE":
+            nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
                 "ticker": d["ticker"], "nom": s["nom"],
                 "type": "RSI CRITIQUE", "score": score_a,
                 "cours": d["cours"], "rsi": d.get("rsi"),
                 "rsi_niveau": "CRITIQUE",
-                "variation": d["variation"]
+                "variation": d["variation"],
+                "nb_actions": nb_actions
             })
 
         # Alertes dividende
@@ -1173,6 +1386,29 @@ def analyse_complete(moment="scan", force=False):
 
     div_bloc = "\n🚨 " + " | ".join(alertes_seuil) if alertes_seuil else ""
 
+    # Bloc stop-loss
+    sl_bloc = ""
+    if stop_loss_alertes:
+        sl_bloc = "\n🛑 <b>STOP-LOSS > -15% :</b>\n"
+        for sl in stop_loss_alertes:
+            sl_bloc += "  🔴 {} {:+.1f}% ({} actions)\n".format(
+                sl["nom"], sl["perte_pct"], sl["quantite"])
+
+    # Bloc web actu
+    web_bloc = ""
+    if web_actu:
+        web_bloc = "\n🌐 <b>Actu web :</b>\n" + web_actu + "\n"
+
+    # Position sizing dans les signaux
+    sig_lines_v2 = []
+    for sig in signaux_forts:
+        emoji_s = "🎯" if sig["type"] == "ACHAT" else "⚠️" if sig["type"] == "VENTE" else "🆘"
+        nb = sig.get("nb_actions", 1)
+        sizing = " | <b>{} action{}</b>".format(nb, "s" if nb > 1 else "") if nb > 0 else " | cash insuffisant"
+        sig_lines_v2.append("{} <b>{}</b> {} | {}EUR | RSI:{} | Score:{}{}".format(
+            emoji_s, sig["nom"], sig["type"],
+            sig["cours"], sig["rsi"], sig["score"], sizing))
+
     emoji_msg = "🚨" if signaux_forts and not force else "📊"
     titre = "SIGNAL D'ACTION" if signaux_forts and not force else "ANALYSE MANUELLE"
 
@@ -1182,20 +1418,19 @@ def analyse_complete(moment="scan", force=False):
            "<b>Marches :</b> {}\n"
            "――――――――――――――――――――――\n"
            "<b>Portefeuille :</b>\n{}\n"
-           "{}{}{}"
+           "{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "{}"
+           "🤖 <b>Agent v10.6 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v10.5 :</b>\n{}\n"
-           "――――――――――――――――――――――\n"
-           "<i>Reponds ici | 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'</i>").format(
+           "<i>Reponds librement | 'analyse' | 'geo' | 'capitol' | 'ia' | 'stop loss' | 'emergent'</i>").format(
         emoji_msg, titre, now,
         sent_emoji, sentiment, pv,
         " | ".join(macro_lines),
         "\n".join(ptf_lines),
-        "\n\n<b>Signaux :</b>\n" + "\n".join(sig_lines) + "\n" if sig_lines else "",
+        "\n\n<b>Signaux :</b>\n" + "\n".join(sig_lines_v2) + "\n" if sig_lines_v2 else "",
         geo_bloc, luxe_bloc + "\n" if luxe_bloc else "",
         div_bloc + "\n" if div_bloc else "",
+        sl_bloc, web_bloc,
         analyse)
 
     send_telegram(msg)
@@ -1479,20 +1714,17 @@ if __name__ == "__main__":
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("[INIT] Demarrage timestamp : {}".format(bot_start_time))
     print("=" * 55)
-    print(" Agent Trading Matthieu v10.5")
-    print(" Mode signal uniquement — silence si marche ferme")
-    print(" Scan toutes les 30min | Weekend OFF | Lundi optim")
+    print(" Agent Trading Matthieu v10.6 - Intelligence Complete")
+    print(" Web search + Position sizing + Stop-loss + Decouverte")
+    print(" Scan 30min | Weekend OFF | Lundi optim+decouverte")
     print("=" * 55)
 
-    # Envoyer le message de demarrage UNE SEULE FOIS
-    # Si le fichier verrou existe et date de moins de 5min → pas de message
     verrou = Path("/tmp/bot_started.lock")
     envoyer_demarrage = True
     try:
         if verrou.exists():
-            age_secondes = (datetime.now(PARIS_TZ).timestamp() -
-                           verrou.stat().st_mtime)
-            if age_secondes < 300:  # Moins de 5 minutes → crash loop detecte
+            age_secondes = (datetime.now(PARIS_TZ).timestamp() - verrou.stat().st_mtime)
+            if age_secondes < 300:
                 envoyer_demarrage = False
                 print("[INIT] Crash loop detecte — message demarrage supprime")
     except:
@@ -1501,18 +1733,23 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v10.5 — Mode signal uniquement !</b>\n\n"
-            "Scan toutes les 30min (9h15-17h30 Paris)\n"
-            "Silence total le weekend et hors heures marche\n\n"
-            "Commandes : 'analyse' | 'geo' | 'capitol' | 'ia' | 'backtest'"
+            "🚀 <b>Agent Trading v10.6 — Intelligence Complete !</b>\n\n"
+            "✅ Recherche web active chaque matin\n"
+            "✅ Position sizing : score 50-65=1 / 65-80=2 / >80=3 actions\n"
+            "✅ Stop-loss auto suggere si perte > 15%\n"
+            "✅ Dialogue contextuel avec memoire de conversation\n"
+            "✅ Decouverte societes emergentes chaque lundi\n"
+            "✅ Nouvelles valeurs : Soitec STMicro Veolia Eutelsat McPhy\n\n"
+            "Commandes libres | 'analyse' | 'geo' | 'stop loss' | 'emergent' | 'ia'"
         )
     else:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
 
     # Timestamps manuels — evite tous les bugs de schedule
-    dernier_scan     = datetime.now(PARIS_TZ) - timedelta(minutes=31)  # Pret immediatement
-    dernier_eur_usd  = datetime.now(PARIS_TZ)
-    dernier_optim    = datetime.now(PARIS_TZ) - timedelta(days=1)
+    dernier_scan      = datetime.now(PARIS_TZ) - timedelta(minutes=31)
+    dernier_eur_usd   = datetime.now(PARIS_TZ)
+    dernier_optim     = datetime.now(PARIS_TZ) - timedelta(days=1)
+    dernier_decouverte = datetime.now(PARIS_TZ) - timedelta(days=1)
 
     INTERVALLE_SCAN    = 30   # minutes entre chaque scan
     INTERVALLE_EUR_USD = 60   # minutes entre chaque refresh EUR/USD
@@ -1538,7 +1775,7 @@ if __name__ == "__main__":
             EUR_USD_RATE = get_eur_usd()
             print("[EUR/USD] {}".format(EUR_USD_RATE))
 
-        # ── Auto-optimisation chaque lundi entre 08h30 et 09h00 ──
+        # ── Auto-optimisation + decouverte chaque lundi matin ──
         est_lundi    = maintenant.weekday() == 0
         est_08h30    = maintenant.hour == 8 and maintenant.minute >= 30
         pas_fait_auj = dernier_optim.date() < maintenant.date()
@@ -1547,8 +1784,16 @@ if __name__ == "__main__":
             print("[OPTIM] Demarrage auto-optimisation lundi")
             auto_optimisation()
 
+        # Decouverte societes emergentes lundi 08h45
+        est_08h45 = maintenant.hour == 8 and maintenant.minute >= 45
+        pas_decouvert_auj = dernier_decouverte.date() < maintenant.date()
+        if est_lundi and est_08h45 and pas_decouvert_auj:
+            dernier_decouverte = maintenant
+            print("[DECOUVERTE] Lancement recherche societes emergentes")
+            decouverte_societes_emergentes()
+
         # ── Ecoute messages Telegram ──
         check_messages_telegram()
 
-        # Pause 60s — UNE seule iteration par minute, pas de double declenchement
+        # Pause 60s
         time.sleep(60)
