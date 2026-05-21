@@ -1587,7 +1587,7 @@ def analyse_complete(moment="scan", force=False):
     cash_dispo = params.get("cash_dispo", 240)  # Cash mis a jour par l utilisateur
 
     # Recherche web active (uniquement en mode force pour economiser les tokens)
-    web_actu = recherche_web_active() if force else ""  # RSS rapide, sans tokens Claude
+    web_actu = recherche_web_active()  # RSS rapide toujours, sans tokens Claude
 
     # Verifier stop-loss
     stop_loss_alertes = check_stop_loss(donnees_ok)
