@@ -613,32 +613,61 @@ def formatter_capitol_telegram(trades):
 # ============================================================
 def recherche_web_active():
     """
-    Recherche web via yfinance RSS + feedparser uniquement.
-    Plus rapide et sans consommer de tokens Claude.
+    Recherche actu via RSS — rapide, sans tokens Claude.
+    Fallback sur les themes macro si pas de news specifiques.
     """
     try:
         resultats = []
-        # Utiliser les RSS deja charges plutot que Claude
-        for feed_info in RSS_FEEDS[:3]:
+        noms_valeurs = [
+            ("thales","defense"), ("dassault","defense"), ("airbus","aeronautique"),
+            ("totalenergies","energie"), ("total energies","energie"),
+            ("microsoft","tech"), ("capgemini","tech"), ("safran","defense"),
+            ("orange","telecom"), ("bnp","banque"), ("schneider","energie"),
+            ("nvidia","tech"), ("lvmh","luxe"), ("hermes","luxe")
+        ]
+        themes_macro = [
+            ("iran","geopolitique Iran"), ("ormuz","detroit Ormuz"),
+            ("ukraine","conflit Ukraine"), ("trump","tensions Trump"),
+            ("petrole","marche petrole"), ("cac","bourse Paris"),
+            ("fed","politique monetaire"), ("bce","politique BCE")
+        ]
+
+        for feed_info in RSS_FEEDS:
             try:
                 feed = feedparser.parse(feed_info["url"])
-                for entry in feed.entries[:15]:
-                    titre = entry.get("title", "")
+                for entry in feed.entries[:20]:
+                    titre = entry.get("title", "").strip()
+                    if not titre or len(titre) < 10: continue
                     tl = titre.lower()
-                    # Filtrer sur nos valeurs
-                    for nom, ticker in [("thales","HO.PA"),("dassault","AM.PA"),
-                                       ("airbus","AIR.PA"),("totalenergies","TTE.PA"),
-                                       ("microsoft","MSFT"),("capgemini","CAP.PA"),
-                                       ("safran","SAF.PA"),("orange","ORA.PA"),
-                                       ("bnp","BNP.PA"),("schneider","SU.PA")]:
+
+                    # News sur nos valeurs
+                    for nom, secteur in noms_valeurs:
                         if nom in tl and titre not in resultats:
-                            impact = "haussier" if any(w in tl for w in
-                                ["hausse","monte","bond","profit","gain","record","accord"]) else "baissier"
-                            resultats.append("• {} → {}".format(titre[:70], impact))
+                            impact = "🟢" if any(w in tl for w in
+                                ["hausse","monte","bond","profit","gain","record",
+                                 "accord","positif","croissance","commande"]) else "🔴"
+                            resultats.append("{} {}".format(impact, titre[:75]))
                             break
             except:
                 pass
-        return "\n".join(resultats[:3]) if resultats else ""
+
+        # Si pas de news specifiques → prendre les 2 meilleures news macro
+        if len(resultats) < 2:
+            for feed_info in RSS_FEEDS[:2]:
+                try:
+                    feed = feedparser.parse(feed_info["url"])
+                    for entry in feed.entries[:10]:
+                        titre = entry.get("title", "").strip()
+                        tl = titre.lower()
+                        for kw, label in themes_macro:
+                            if kw in tl and titre not in resultats:
+                                resultats.append("🌍 {}".format(titre[:75]))
+                                break
+                        if len(resultats) >= 3: break
+                except:
+                    pass
+
+        return "\n".join(resultats[:3]) if resultats else "Aucune actu specifique detectee"
     except Exception as e:
         print("[WEB RSS] " + str(e))
         return ""
@@ -1829,7 +1858,7 @@ def analyse_complete(moment="scan", force=False):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v10.6 :</b>\n{}\n"
+           "🤖 <b>Agent v10.7 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Reponds librement | 'analyse' | 'geo' | 'capitol' | 'ia' | 'stop loss' | 'emergent'</i>").format(
         emoji_msg, titre, now,
