@@ -719,36 +719,41 @@ def decouverte_societes_emergentes():
 # DIALOGUE CONTEXTUEL v10.6
 # ============================================================
 HISTORIQUE_CONVERSATION = []
+DERNIER_APPEL_CLAUDE = None  # Timestamp du dernier appel pour rate limiting
+
+def attendre_rate_limit():
+    """Attend si necessaire pour respecter le rate limit Claude."""
+    global DERNIER_APPEL_CLAUDE
+    if DERNIER_APPEL_CLAUDE:
+        elapsed = (datetime.now(PARIS_TZ) - DERNIER_APPEL_CLAUDE).total_seconds()
+        if elapsed < 3:  # Minimum 3s entre appels
+            time.sleep(3 - elapsed)
+    DERNIER_APPEL_CLAUDE = datetime.now(PARIS_TZ)
 
 def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
-    """Repond avec memoire de conversation et contexte marche."""
+    """Repond avec memoire de conversation et contexte marche reduit."""
     if not ANTHROPIC_API_KEY: return "Cle manquante."
     global HISTORIQUE_CONVERSATION
+    attendre_rate_limit()
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    # Contexte minimal — 6 positions max, pas de RSI pour economiser tokens
     ctx = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s.get("type") not in ["CTO","CTO-US"]: continue
         pv = calcul_pv(d["ticker"], d["cours"]) or 0
-        ctx.append("{} {}EUR RSI:{} PV:{:+.0f}EUR".format(
-            s["nom"], d["cours"], d.get("rsi","?"), pv))
-    sl = check_stop_loss(donnees_ok)
-    sl_str = (" | STOP-LOSS : " + " | ".join(
-        "{} {:+.1f}%".format(x["nom"], x["perte_pct"]) for x in sl)) if sl else ""
+        ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], d["cours"], pv))
     HISTORIQUE_CONVERSATION.append({"role": "user", "content":
-        "MARCHE: {}{}\nACTU: {}\nQUESTION: {}".format(
-            " | ".join(ctx), sl_str,
-            web_actu[:150] if web_actu else "RAS", question_user)})
-    if len(HISTORIQUE_CONVERSATION) > 12:
-        HISTORIQUE_CONVERSATION = HISTORIQUE_CONVERSATION[-12:]
-    system = ("Agent financier de Matthieu. CTO Boursobank flat tax 30% horizon 1an. "
-              "Orange 83@10.70EUR dividende juin NE PAS VENDRE. "
-              "Thales 8@243.32EUR. Dassault 3@317.02EUR. MSFT 1@325.84EUR ordre limite. "
-              "Cash 240EUR. Risque modere-eleve accepte. Max 150 mots chiffres precis.")
+        "Marche: {}\nQ: {}".format(" | ".join(ctx[:6]), question_user)})
+    if len(HISTORIQUE_CONVERSATION) > 8:
+        HISTORIQUE_CONVERSATION = HISTORIQUE_CONVERSATION[-8:]
+    system = ("Agent financier Matthieu. Thales 8@243EUR Dassault 3@317EUR "
+              "Orange 83@10.70EUR(dividende juin-NE PAS VENDRE) MSFT 1@325EUR "
+              "Cash 240EUR. Reponds en max 80 mots, chiffres precis.")
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=300,
+            max_tokens=150,
             system=system,
             messages=HISTORIQUE_CONVERSATION
         )
@@ -756,7 +761,9 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
         HISTORIQUE_CONVERSATION.append({"role": "assistant", "content": rep})
         return rep
     except Exception as e:
-        return "[Erreur : " + str(e) + "]"
+        if "rate_limit" in str(e):
+            return "Rate limit atteint — reessaie dans 30 secondes."
+        return "[Erreur : " + str(e)[:80] + "]"
 
 # ============================================================
 # TELEGRAM
@@ -951,7 +958,10 @@ def check_messages_telegram():
         news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
         capitol_trades = get_capitol_trades()
         sentiment = get_sentiment(donnees_ok)
-        web_actu = recherche_web_active()
+        # Web search uniquement si question explicite sur l actualite
+        web_actu = ""
+        if any(kw in text.lower() for kw in ["actu", "news", "aujourd", "marche", "que se passe"]):
+            web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
         send_telegram("🤖 <b>Agent v10.7 :</b>\n" + reponse)
 
@@ -1480,7 +1490,7 @@ STRUCTURE DE TA REPONSE :
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=500,
+            max_tokens=350,
             messages=[{"role": "user", "content": prompt}])
         return msg.content[0].text
     except Exception as e:
@@ -1937,7 +1947,7 @@ Reponds en JSON strict (sans markdown) :
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         resp = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=800,
+            max_tokens=400,
             messages=[{"role": "user", "content": prompt_optim}]
         )
         raw = resp.content[0].text.strip()
