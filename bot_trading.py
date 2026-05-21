@@ -612,26 +612,73 @@ def formatter_capitol_telegram(trades):
 # RECHERCHE WEB ACTIVE v10.6
 # ============================================================
 def recherche_web_active():
-    """Claude cherche l actu impactante du jour via web search."""
+    """
+    Recherche web via yfinance RSS + feedparser uniquement.
+    Plus rapide et sans consommer de tokens Claude.
+    """
+    try:
+        resultats = []
+        # Utiliser les RSS deja charges plutot que Claude
+        for feed_info in RSS_FEEDS[:3]:
+            try:
+                feed = feedparser.parse(feed_info["url"])
+                for entry in feed.entries[:15]:
+                    titre = entry.get("title", "")
+                    tl = titre.lower()
+                    # Filtrer sur nos valeurs
+                    for nom, ticker in [("thales","HO.PA"),("dassault","AM.PA"),
+                                       ("airbus","AIR.PA"),("totalenergies","TTE.PA"),
+                                       ("microsoft","MSFT"),("capgemini","CAP.PA"),
+                                       ("safran","SAF.PA"),("orange","ORA.PA"),
+                                       ("bnp","BNP.PA"),("schneider","SU.PA")]:
+                        if nom in tl and titre not in resultats:
+                            impact = "haussier" if any(w in tl for w in
+                                ["hausse","monte","bond","profit","gain","record","accord"]) else "baissier"
+                            resultats.append("• {} → {}".format(titre[:70], impact))
+                            break
+            except:
+                pass
+        return "\n".join(resultats[:3]) if resultats else ""
+    except Exception as e:
+        print("[WEB RSS] " + str(e))
+        return ""
+
+
+def recherche_web_claude():
+    """
+    Version Claude avec web_search — uniquement sur demande explicite
+    via commande 'actu' ou 'news' dans Telegram.
+    Extrait uniquement le dernier bloc texte (resultat final, pas le raisonnement).
+    """
     if not ANTHROPIC_API_KEY:
         return ""
     try:
+        attendre_rate_limit()
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
-        prompt = ("Recherche les 3 nouvelles financieres importantes du {} "
-                  "pour : Thales, Dassault, Safran, TotalEnergies, Microsoft, "
-                  "Capgemini, Airbus, Orange, BNP. "
-                  "Format : bullet point societe + news + impact haussier/baissier").format(date_str)
+        prompt = ("Donne-moi les 3 actualites financieres les plus importantes "
+                  "du {} pour un portefeuille : Thales Dassault Airbus TotalEnergies "
+                  "Microsoft Capgemini Orange BNP Safran. "
+                  "Reponds UNIQUEMENT avec 3 bullet points : "
+                  "• Societe : news → haussier/baissier").format(date_str)
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=300,
+            max_tokens=200,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
-        texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
-        return texte.strip()[:400] if texte else ""
+        # Prendre UNIQUEMENT le dernier bloc texte (resultat final)
+        # Les blocs intermediaires sont le raisonnement interne a ignorer
+        blocs_texte = [b.text for b in msg.content
+                       if hasattr(b, "text") and b.text and
+                       not b.text.startswith("Je vais") and
+                       not b.text.startswith("Maintenant") and
+                       not b.text.startswith("D apres")]
+        if blocs_texte:
+            return blocs_texte[-1].strip()[:300]
+        return ""
     except Exception as e:
-        print("[WEB] " + str(e))
+        print("[WEB CLAUDE] " + str(e))
         return ""
 
 # ============================================================
@@ -958,9 +1005,10 @@ def check_messages_telegram():
         news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
         capitol_trades = get_capitol_trades()
         sentiment = get_sentiment(donnees_ok)
-        # Web search uniquement si question explicite sur l actualite
-        web_actu = ""
-        if any(kw in text.lower() for kw in ["actu", "news", "aujourd", "marche", "que se passe"]):
+        # RSS rapide par defaut, Claude web search uniquement sur demande actu/news
+        if any(kw in text.lower() for kw in ["actu", "news", "que se passe"]):
+            web_actu = recherche_web_claude()
+        else:
             web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
         send_telegram("🤖 <b>Agent v10.7 :</b>\n" + reponse)
@@ -1539,7 +1587,7 @@ def analyse_complete(moment="scan", force=False):
     cash_dispo = params.get("cash_dispo", 240)  # Cash mis a jour par l utilisateur
 
     # Recherche web active (uniquement en mode force pour economiser les tokens)
-    web_actu = recherche_web_active() if force else ""
+    web_actu = recherche_web_active() if force else ""  # RSS rapide, sans tokens Claude
 
     # Verifier stop-loss
     stop_loss_alertes = check_stop_loss(donnees_ok)
@@ -1739,10 +1787,15 @@ def analyse_complete(moment="scan", force=False):
             sl_bloc += "  🔴 {} {:+.1f}% ({} actions)\n".format(
                 sl["nom"], sl["perte_pct"], sl["quantite"])
 
-    # Bloc web actu
+    # Bloc web actu — afficher seulement si contenu utile
     web_bloc = ""
-    if web_actu:
-        web_bloc = "\n🌐 <b>Actu web :</b>\n" + web_actu + "\n"
+    if web_actu and len(web_actu) > 20:
+        # Filtrer les lignes de raisonnement interne
+        lignes_web = [l for l in web_actu.split('\n')
+                      if l.strip() and not any(skip in l for skip in
+                      ["Je vais", "Maintenant", "D'apres", "recherche", "specifique"])]
+        if lignes_web:
+            web_bloc = "\n🌐 <b>Actu :</b>\n" + "\n".join(lignes_web[:3]) + "\n"
 
     # Position sizing dans les signaux
     sig_lines_v2 = []
