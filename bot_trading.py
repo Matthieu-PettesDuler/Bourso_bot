@@ -141,8 +141,15 @@ GEO_IMPACT = {
     "ukraine":      {"SAF.PA": +20, "HO.PA": +20, "AM.PA": +20, "TTE.PA": +10},
     "russie":       {"SAF.PA": +15, "HO.PA": +15, "AM.PA": +15, "TTE.PA": +10},
     "guerre":       {"GC=F": +15, "SAF.PA": +10, "HO.PA": +10},
+    # Accord Iran/Ormuz v10.7 — nuances apaisement
     "cessez":       {"SAF.PA": -10, "HO.PA": -10, "AM.PA": -10},
+    "cessez-le-feu":{"SAF.PA": -15, "HO.PA": -15, "AM.PA": -15, "TTE.PA": -10, "GC=F": -15},
+    "accord iran":  {"TTE.PA": -15, "GC=F": -20, "SAF.PA": -10, "HO.PA": -10, "AIR.PA": +10},
+    "reouverture ormuz": {"TTE.PA": -20, "GC=F": -15, "AIR.PA": +10, "BNP.PA": +5},
+    "negociation iran": {"TTE.PA": -10, "GC=F": -10, "SAF.PA": -5},
     "paix":         {"SAF.PA": -10, "HO.PA": -10, "AM.PA": -10, "TTE.PA": -5},
+    "fin guerre":   {"SAF.PA": -15, "HO.PA": -15, "AM.PA": -15, "TTE.PA": -10, "GC=F": -20},
+    "rubio":        {"TTE.PA": -10, "GC=F": -10},
     "trump":        {"AIR.PA": -20, "CAP.PA": -10, "MSFT": -5},
     "taxe":         {"AIR.PA": -15, "CAP.PA": -10},
     "tarif":        {"AIR.PA": -15, "CAP.PA": -10},
@@ -246,7 +253,9 @@ KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine
                    "palantir", "gemini", "gpt", "llm", "cyber", "maven", "aip",
                    "google ai", "alphabet", "contrat gouvernement",
                    "luxe", "tourisme", "trafic aerien", "brand finance",
-                   "souverainete", "chine consommation", "gucci"]
+                   "souverainete", "chine consommation", "gucci",
+                   "accord iran", "cessez-le-feu", "reouverture ormuz",
+                   "negociation iran", "fin guerre", "rubio", "trump iran"]
 
 # ============================================================
 # CAPITOL TRADES — Trades des elus US Congress
