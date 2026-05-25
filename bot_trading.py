@@ -1805,6 +1805,33 @@ def analyse_complete(moment="scan", force=False):
     analyse = analyse_claude(donnees_ok, "signal", news_p, news_m, sentiment,
                               geo_scores, geo_themes, capitol_trades)
 
+    # Fallback si analyse vide ou erreur
+    if not analyse or analyse.startswith("[Erreur") or len(analyse.strip()) < 20:
+        pv_val = pv_totale(donnees_ok)
+        top_hausse = sorted(
+            [d for d in donnees_ok if SEUILS.get(d["ticker"],{}).get("type") in ["CTO","CTO-US"]],
+            key=lambda x: x["variation"], reverse=True)[:2]
+        top_baisse = sorted(
+            [d for d in donnees_ok if SEUILS.get(d["ticker"],{}).get("type") in ["CTO","CTO-US"]],
+            key=lambda x: x["variation"])[:1]
+        lignes_fb = [
+            "📊 PV totale : {:+.0f}EUR | Sentiment : {}".format(pv_val, sentiment),
+        ]
+        for d in top_hausse:
+            lignes_fb.append("🟢 {} +{:.1f}%".format(
+                SEUILS[d["ticker"]]["nom"], d["variation"]))
+        for d in top_baisse:
+            lignes_fb.append("🔴 {} {:.1f}%".format(
+                SEUILS[d["ticker"]]["nom"], d["variation"]))
+        if signaux_forts:
+            for sig in signaux_forts[:2]:
+                lignes_fb.append("🎯 Signal {} {} | RSI:{} | Score:{}".format(
+                    sig["type"], sig["nom"], sig["rsi"], sig["score"]))
+        else:
+            lignes_fb.append("✅ Aucun signal d'action — portefeuille stable")
+        lignes_fb.append("⚠️ Analyse IA indisponible — reessaie dans 30s")
+        analyse = "\n".join(lignes_fb)
+
     # Bloc signaux
     sig_lines = []
     for sig in signaux_forts:
