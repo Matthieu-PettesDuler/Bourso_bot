@@ -2247,4 +2247,5 @@ if __name__ == "__main__":
         check_messages_telegram()
 
         # Pause 3s — reactivite Telegram immediate
-        # Les scans sont proteges par timestamps,
+        # Les scans sont proteges par timestamps, pas de double declenchement
+        time.sleep(3)
