@@ -1509,89 +1509,53 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     question_str = "\nQUESTION: " + question_user if question_user else ""
 
-    prompt = """Tu es l'agent financier personnel de Matthieu, investisseur francais debutant.
-Tu es son SEUL conseiller. Raisonne comme un professionnel rigoureux.
+    prompt = """Agent financier Matthieu. CTO Boursobank flat tax 30%.
+Portefeuille : Orange 83@10.70EUR(PV+617EUR DIV JUIN NE PAS VENDRE) | Capgemini 4@131EUR(-108EUR) | Total 12@78.84EUR(WTI corr) | BNP 3@85.51EUR | Airbus 3@166.78EUR | Safran 2@289.87EUR | Thales 8@243.32EUR | Dassault 3@317.02EUR | Schneider 2@270.33EUR | MSFT 1@325.84EUR(ordre limite)
+Cash : ~240EUR | Dividende Orange dans 15j → garder cash pour Dassault
 
-PORTEFEUILLE CTO Boursobank (flat tax 30%, horizon 1 an) :
-- Orange : 83 @ 10.70EUR | PV +625EUR | DIVIDENDE ~10 JUIN 2026 ~100EUR nets → NE JAMAIS VENDRE AVANT JUILLET 2026
-- Capgemini : 4 @ 131.07EUR | perte ~128EUR | ne pas couper sauf score > 80pts ET tendance confirmee
-- TotalEnergies : 12 @ 78.84EUR | correlation WTI 85% — IMPORTANT : si WTI baisse, NE PAS acheter Total
-- BNP Paribas : 3 @ 85.51EUR
-- Airbus : 3 @ 166.78EUR | sensible tarifs Trump/Chine
-- Safran : 2 @ 289.87EUR
-- Thales : 8 @ 243.32EUR | renforce 12/05 | surveiller rebond
-- Dassault Aviation : 3 @ 317.02EUR | cible achat avec dividende Orange juin
-- Schneider Electric : 2 @ 270.33EUR
-- Microsoft : 1 @ 325.84EUR | ordre LIMITE obligatoire (US)
-Cash disponible : ~240EUR
-
-REGLES ABSOLUES :
-1. Prix toujours en EUR. Jamais en USD.
-2. Ne jamais vendre Orange avant juillet 2026.
-3. Utiliser uniquement les cours fournis, ne pas inventer de prix.
-4. Actions francaises → ordre AU MARCHE. Microsoft → ordre LIMITE.
-5. Ne pas couper Capgemini sauf score > 80pts.
-6. REGLE ANTI-CONTRADICTION : avant tout signal d'achat, verifier la coherence :
-   - TotalEnergies : acheter SEULEMENT si WTI monte (pas si WTI baisse)
-   - Defense (Thales/Dassault/Safran) : acheter SEULEMENT si RSI < 25 ET MACD haussier
-   - Un score geo eleve NE SUFFIT PAS si les indicateurs techniques contredisent
-   - Le score geo est un BONUS, pas une raison suffisante d'achat seule
-7. Cash ~240EUR : si dividende Orange dans moins de 30j, preserver le cash pour Dassault
-8. Verifier le cash restant apres chaque ordre propose
-
-RAISONNEMENT REQUIS — pour chaque signal, pose-toi ces questions :
-A) Le cours du sous-jacent (WTI pour Total, defense pour Thales) confirme-t-il ?
-B) Le RSI est-il coherent avec le signal ? (RSI 59 sur Total = neutre, pas survendu)
-C) Le cash sera-t-il mieux utilise ici ou dans 23j pour Dassault avec le dividende ?
-D) Y a-t-il une contradiction entre le signal geo et les indicateurs techniques du jour ?
-Si contradiction detectee → ignorer le signal et expliquer pourquoi.
-
-MARCHES {moment} — {date} :
-Macro: {macro}
-{lignes}
+MARCHE {moment} {date} : {macro}
+POSITIONS : {lignes_court}
 {geo}
-{capitol}
-{dividendes}
-NEWS: {news_p} | {news_m}
+NEWS: {news}
 SENTIMENT: {sentiment}
-{question}
 
-STRUCTURE DE TA REPONSE :
+REGLES : WTI baisse = pas d achat Total | RSI>30 defense = pas d achat | score geo seul insuffisant | jamais vendre Orange avant juillet 2026
 
-📊 MARCHE DU JOUR
-[2 phrases : ambiance generale + 1 contradiction ou coherence cle detectee]
-
-💼 MON PORTEFEUILLE
-[5 lignes max : positions cles, PV reelle totale en fin]
-
-🎯 CE QUE TU DOIS FAIRE AUJOURD'HUI
-→ Si achat justifie (SANS contradiction) : ACHAT | VALEUR | 1 action | PRIX EUR | type ordre | raison en 1 phrase | cash restant
-→ Si signal contradictoire : "Rien a faire — signal contredit par indicateur technique. Prochain declencheur : niveau precis ou date"
-→ Si vraiment rien : "Rien a faire — raison precise. Prochain declencheur : niveau ou date exacte"
-
-⚠️ RISQUE DU JOUR
-[1 phrase precise sur le risque principal aujourd'hui]""".format(
+REPONDS EN 150 MOTS MAX :
+[MARCHE] 1 phrase
+[PORTEFEUILLE] 3 lignes max avec PV totale
+[ACTION] Achat/Rien a faire + raison + prochain declencheur
+[RISQUE] 1 phrase""".format(
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
-        macro=" | ".join(macro),
-        lignes="\n".join(lignes),
-        geo=geo_str,
-        capitol=capitol_str,
-        dividendes=div_str,
-        news_p=" | ".join(news_p) if news_p else "RAS",
-        news_m=" | ".join(news_m) if news_m else "RAS",
+        macro=" | ".join(macro[:3]),
+        lignes_court=" | ".join([
+            "{} {}EUR RSI:{} PV:{:+.0f}EUR".format(
+                SEUILS.get(d["ticker"],{}).get("nom","?"),
+                d["cours"], d.get("rsi","?"),
+                calcul_pv(d["ticker"], d["cours"]) or 0)
+            for d in donnees if d and SEUILS.get(d["ticker"],{}).get("type") in ["CTO","CTO-US"]
+        ][:8]),
+        geo=geo_str[:200] if geo_str else "",
+        news=(" | ".join(news_p[:2] + news_m[:1]))[:150] if (news_p or news_m) else "RAS",
         sentiment=sentiment,
-        question=question_str
+        question=question_str[:100] if question_str else ""
     )
 
     try:
+        attendre_rate_limit()
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=350,
             messages=[{"role": "user", "content": prompt}])
-        return msg.content[0].text
+        resultat = msg.content[0].text if msg.content else ""
+        return resultat if resultat and len(resultat.strip()) > 20 else ""
     except Exception as e:
-        return "[Erreur Claude : " + str(e) + "]"
+        err = str(e)
+        print("[CLAUDE] Erreur : " + err[:100])
+        if "rate_limit" in err:
+            return "[Erreur Claude : rate limit — reessaie dans 30s]"
+        return "[Erreur Claude : " + err[:80] + "]"
 
 # ============================================================
 # ANALYSE COMPLETE v10.1
@@ -1802,11 +1766,24 @@ def analyse_complete(moment="scan", force=False):
                 "+" if d["variation"]>=0 else "", d["variation"]))
 
     # Analyse Claude enrichie
-    analyse = analyse_claude(donnees_ok, "signal", news_p, news_m, sentiment,
-                              geo_scores, geo_themes, capitol_trades)
+    # Appel Claude avec retry automatique (max 2 tentatives)
+    analyse = ""
+    for tentative in range(2):
+        try:
+            analyse = analyse_claude(donnees_ok, "signal", news_p, news_m, sentiment,
+                                      geo_scores, geo_themes, capitol_trades)
+            if analyse and not analyse.startswith("[Erreur") and len(analyse.strip()) >= 30:
+                break  # Succes
+            if tentative == 0:
+                print("[ANALYSE] Tentative 1 echouee, retry dans 5s...")
+                time.sleep(5)
+        except Exception as e:
+            print("[ANALYSE] Erreur tentative {} : {}".format(tentative+1, str(e)[:80]))
+            if tentative == 0:
+                time.sleep(5)
 
-    # Fallback si analyse vide ou erreur
-    if not analyse or analyse.startswith("[Erreur") or len(analyse.strip()) < 20:
+    # Fallback si analyse vide, erreur ou trop courte apres 2 tentatives
+    if not analyse or analyse.startswith("[Erreur") or len(analyse.strip()) < 30:
         pv_val = pv_totale(donnees_ok)
         top_hausse = sorted(
             [d for d in donnees_ok if SEUILS.get(d["ticker"],{}).get("type") in ["CTO","CTO-US"]],
@@ -1829,7 +1806,7 @@ def analyse_complete(moment="scan", force=False):
                     sig["type"], sig["nom"], sig["rsi"], sig["score"]))
         else:
             lignes_fb.append("✅ Aucun signal d'action — portefeuille stable")
-        lignes_fb.append("⚠️ Analyse IA indisponible — reessaie dans 30s")
+        lignes_fb.append("⚠️ Analyse IA indisponible — reessaie avec 'analyse'")
         analyse = "\n".join(lignes_fb)
 
     # Bloc signaux
@@ -2270,5 +2247,4 @@ if __name__ == "__main__":
         check_messages_telegram()
 
         # Pause 3s — reactivite Telegram immediate
-        # Les scans sont proteges par timestamps, pas de double declenchement
-        time.sleep(3)
+        # Les scans sont proteges par timestamps,
