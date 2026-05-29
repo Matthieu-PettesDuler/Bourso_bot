@@ -1597,37 +1597,79 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     question_str = "\nQUESTION: " + question_user if question_user else ""
 
-    prompt = """Agent financier Matthieu. CTO Boursobank flat tax 30%.
-Portefeuille : Orange 83@10.70EUR(PV+617EUR DIV JUIN NE PAS VENDRE) | Capgemini 4@131EUR(-108EUR) | Total 12@78.84EUR(WTI corr) | BNP 3@85.51EUR | Airbus 3@166.78EUR | Safran 2@289.87EUR | Thales 8@243.32EUR | Dassault 3@317.02EUR | Schneider 2@270.33EUR | MSFT 1@325.84EUR(ordre limite)
-Cash : ~240EUR | Dividende Orange dans 15j → garder cash pour Dassault
+    # Calculer PV totale pour le prompt
+    pv_tot = pv_totale(donnees)
 
-MARCHE {moment} {date} : {macro}
-POSITIONS : {lignes_court}
-{geo}
-NEWS: {news}
-SENTIMENT: {sentiment}
+    # Construire positions courtes pour le prompt
+    positions = []
+    for d in donnees:
+        if not d: continue
+        s = SEUILS.get(d["ticker"], {})
+        if s.get("type") not in ["CTO","CTO-US"]: continue
+        pv = calcul_pv(d["ticker"], d["cours"]) or 0
+        rsi = d.get("rsi","?")
+        positions.append("{} {}EUR RSI:{} PV:{:+.0f}EUR".format(
+            s.get("nom","?"), d["cours"], rsi, pv))
 
-REGLES : WTI baisse = pas d achat Total | RSI>30 defense = pas d achat | score geo seul insuffisant | jamais vendre Orange avant juillet 2026
+    # Contexte dividende Orange
+    div_jours = ""
+    try:
+        from datetime import date as dt_date
+        det = datetime.strptime("2026-06-10", "%Y-%m-%d").date()
+        jours = (det - dt_date.today()).days
+        if jours > 0:
+            div_jours = "Dividende Orange dans {}j (~100EUR nets) — garder cash".format(jours)
+    except:
+        pass
 
-REPONDS EN 150 MOTS MAX :
-[MARCHE] 1 phrase
-[PORTEFEUILLE] 3 lignes max avec PV totale
-[ACTION] Achat/Rien a faire + raison + prochain declencheur
-[RISQUE] 1 phrase""".format(
+    # Signaux actifs pour contexte
+    signaux_str = ""
+    if question_user and question_user.strip():
+        signaux_str = "\nQUESTION : " + question_user[:150]
+
+    prompt = """Tu es l agent financier personnel de Matthieu. Raisonne EXACTEMENT comme un conseiller humain rigoureux.
+
+PORTEFEUILLE (flat tax 30%, horizon 1 an) :
+{positions}
+Cash : ~240EUR | PV totale : {pv:+.0f}EUR
+{div}
+
+MARCHE {moment} {date} :
+{macro}
+GEO : {geo}
+NEWS : {news}
+SENTIMENT : {sentiment}
+{signaux}
+
+REGLES DE RAISONNEMENT (applique dans cet ordre) :
+1. Verifier les CONTRADICTIONS avant tout signal :
+   - Safran/Thales/Dassault RSI > 65 = NE PAS acheter, envisager vente partielle si RSI > 75
+   - TotalEnergies = acheter SEULEMENT si WTI monte ET RSI < 40
+   - Score geo seul sans RSI favorable = signal invalide
+   - Vente Safran RSI 70 score 55 = signal FAIBLE, ne pas vendre si PV positive et contexte geo favorable
+2. Cash vs dividende : si dividende dans moins de 20j, garder cash pour Dassault
+3. Flat tax : calculer impot avant de suggerer une vente (PV x 30%)
+4. Ne JAMAIS vendre Orange avant juillet 2026
+5. Signal fort = score > 65 ET RSI coherent ET sous-jacent confirme
+
+REPONDS EN 200 MOTS MAX avec cette structure :
+[MARCHE] Contexte du jour en 1 phrase (inclure contradiction si detectee)
+[PORTEFEUILLE] 3-4 lignes : ce qui va bien, ce qui souffre, PV totale
+[ACTION] UNE decision claire :
+  → Si achat : ACHAT | VALEUR | QTE | PRIX EUR | type ordre | raison | cash restant
+  → Si vente justifiee : VENTE | VALEUR | QTE | PRIX EUR | PV nette apres flat tax
+  → Si rien : "Rien a faire — [raison precise]. Prochain declencheur : [niveau ou date exacte]"
+[RISQUE] 1 phrase sur le risque principal""".format(
+        positions="\n".join(positions[:10]),
+        pv=pv_tot,
+        div=div_jours,
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
-        macro=" | ".join(macro[:3]),
-        lignes_court=" | ".join([
-            "{} {}EUR RSI:{} PV:{:+.0f}EUR".format(
-                SEUILS.get(d["ticker"],{}).get("nom","?"),
-                d["cours"], d.get("rsi","?"),
-                calcul_pv(d["ticker"], d["cours"]) or 0)
-            for d in donnees if d and SEUILS.get(d["ticker"],{}).get("type") in ["CTO","CTO-US"]
-        ][:8]),
-        geo=geo_str[:200] if geo_str else "",
+        macro=" | ".join(macro[:4]),
+        geo=geo_str[:150] if geo_str else "RAS",
         news=(" | ".join(news_p[:2] + news_m[:1]))[:150] if (news_p or news_m) else "RAS",
         sentiment=sentiment,
-        question=question_str[:100] if question_str else ""
+        signaux=signaux_str
     )
 
     try:
@@ -1856,6 +1898,32 @@ def analyse_complete(moment="scan", force=False):
                 f, s["nom"], d["cours"],
                 "+" if d["variation"]>=0 else "", d["variation"]))
 
+    # 🪙 Crypto — bloc dedie
+    crypto_lines = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s.get("type") != "CRYPTO": continue
+        f = "🟢" if d["variation"] >= 0 else "🔴"
+        rsi = d.get("rsi")
+        score_a, score_v = calcul_score_crypto(d, geo_scores)
+        rsi_str = ""
+        if rsi:
+            if rsi < CRYPTO_RSI_ACHAT:   rsi_str = " 🟢RSI{:.0f}".format(rsi)
+            elif rsi > 80:               rsi_str = " 🔴🔴RSI{:.0f}".format(rsi)
+            elif rsi > CRYPTO_RSI_VENTE: rsi_str = " 🔴RSI{:.0f}".format(rsi)
+            else:                        rsi_str = " RSI{:.0f}".format(rsi)
+        score_str = ""
+        if score_a >= 50:   score_str = " 🎯{}pts".format(score_a)
+        elif score_v >= 50: score_str = " ⚠️{}pts".format(score_v)
+        crypto_lines.append("{} <b>{}</b> {}EUR {}{}%{}{}".format(
+            f, s["nom"], d["cours"],
+            "+" if d["variation"]>=0 else "", d["variation"],
+            rsi_str, score_str))
+
+    crypto_bloc = ""
+    if crypto_lines:
+        crypto_bloc = "\n🪙 <b>Crypto :</b>\n" + "\n".join(crypto_lines)
+
     # Analyse Claude — retry 2x, fallback garanti si echec
     analyse = None
     for tentative in range(2):
@@ -1954,19 +2022,20 @@ def analyse_complete(moment="scan", force=False):
            "<b>Marches :</b> {}\n"
            "――――――――――――――――――――――\n"
            "<b>Portefeuille :</b>\n{}\n"
-           "{}{}{}{}{}"
+           "{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v10.7 :</b>\n{}\n"
+           "🤖 <b>Agent v10.8 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Reponds librement | 'analyse' | 'geo' | 'capitol' | 'ia' | 'stop loss' | 'emergent'</i>").format(
+           "<i>Reponds librement | 'analyse' | 'geo' | 'stop loss' | 'emergent' | 'ia'</i>").format(
         emoji_msg, titre, now,
         sent_emoji, sentiment, pv,
         " | ".join(macro_lines),
         "\n".join(ptf_lines),
         "\n\n<b>Signaux :</b>\n" + "\n".join(sig_lines_v2) + "\n" if sig_lines_v2 else "",
         geo_bloc, luxe_bloc + "\n" if luxe_bloc else "",
+        crypto_bloc + "\n" if crypto_bloc else "",
         div_bloc + "\n" if div_bloc else "",
-        sl_bloc, web_bloc,
+        sl_bloc + web_bloc,
         analyse)
 
     send_telegram(msg)
