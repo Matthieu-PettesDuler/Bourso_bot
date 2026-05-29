@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.7 - Auto-deploiement GitHub
-Nouveautes vs v10.6 :
+Agent Trading Matthieu v10.8 - Auto-deploiement GitHub
+Nouveautes vs v10.7 :
 - GITHUB_TOKEN : le bot peut modifier son propre code et se redéployer
 - auto_patch() : applique des corrections de code via l API GitHub
 - auto_update_portfolio() : met a jour le portefeuille dans le code automatiquement
@@ -1676,7 +1676,7 @@ REPONDS EN 200 MOTS MAX avec cette structure :
         attendre_rate_limit()
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=350,
+            max_tokens=450,
             messages=[{"role": "user", "content": prompt}])
         resultat = msg.content[0].text.strip() if msg.content else ""
         if resultat and len(resultat) > 20:
@@ -1804,12 +1804,25 @@ def analyse_complete(moment="scan", force=False):
         raison_rejet = None
 
         # Capgemini : invalide si RSI > 45 (pas assez survendu)
-        # Le score geo seul ne justifie pas un achat
         if ticker == "CAP.PA" and sig["type"] == "ACHAT":
             rsi = sig.get("rsi")
             if rsi and rsi > 45:
                 raison_rejet = "RSI Capgemini {} trop eleve — score geo seul insuffisant".format(
                     round(rsi, 1))
+
+        # Actions US (Microsoft) : invalide si RSI > 65 (zone de prudence)
+        if ticker == "MSFT" and sig["type"] == "ACHAT":
+            rsi = sig.get("rsi")
+            if rsi and rsi > 65:
+                raison_rejet = "RSI Microsoft {} trop eleve (>65) — zone de prudence".format(
+                    round(rsi, 1))
+
+        # Toutes actions : invalide si RSI > 65 sauf signal tres fort score > 80
+        if sig["type"] == "ACHAT" and sig.get("score", 0) < 80:
+            rsi = sig.get("rsi")
+            if rsi and rsi > 65:
+                raison_rejet = "RSI {} trop eleve ({:.1f}>65) — zone de prudence, attendre correction".format(
+                    sig.get("nom","?"), rsi)
 
         # TotalEnergies : invalide si WTI baisse
         if ticker == "TTE.PA" and sig["type"] == "ACHAT":
