@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.8 - Auto-deploiement GitHub
-Nouveautes vs v10.7 :
+Agent Trading Matthieu v10.7 - Auto-deploiement GitHub
+Nouveautes vs v10.6 :
 - GITHUB_TOKEN : le bot peut modifier son propre code et se redéployer
 - auto_patch() : applique des corrections de code via l API GitHub
 - auto_update_portfolio() : met a jour le portefeuille dans le code automatiquement
@@ -93,12 +93,12 @@ SEUILS = {
     # PEA
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe"},
-    # CRYPTO — surveillance via yfinance (tickers EUR)
-    # ETP accessibles sur Boursobank : 21Shares Bitcoin (ABTC), WisdomTree (BTCW)
-    "BTC-EUR": {"nom": "Bitcoin",    "achat": 60000, "vente": 150000,"type": "CRYPTO","secteur": "Crypto"},
-    "ETH-EUR": {"nom": "Ethereum",   "achat": 2000,  "vente": 6000,  "type": "CRYPTO","secteur": "Crypto"},
-    "SOL-EUR": {"nom": "Solana",     "achat": 80,    "vente": 300,   "type": "CRYPTO","secteur": "Crypto"},
-    "XRP-EUR": {"nom": "XRP",        "achat": 0.40,  "vente": 3.00,  "type": "CRYPTO","secteur": "Crypto"},
+    # CRYPTO — ETNs CoinShares sur Euronext (Boursomarks)
+    # Ordre au marche comme une action francaise, comptes CTO uniquement
+    "BITC.AS": {"nom": "CS Bitcoin",  "achat": 50.00, "vente": 120.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
+    "CETH.AS": {"nom": "CS Ethereum", "achat": 40.00, "vente": 100.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
+    "SLNC.AS": {"nom": "CS Solana",   "achat": 5.00,  "vente": 20.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
+    "CXRP.AS": {"nom": "CS XRP",      "achat": 30.00, "vente": 80.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     # Barometres
     "^FCHI":   {"nom": "CAC 40",            "achat": None,  "vente": None,  "type": "INDEX",   "secteur": "Indice"},
     "GC=F":    {"nom": "Or",                "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Refuge"},
@@ -129,10 +129,10 @@ CORRELATIONS = {
     "MCPHY.PA":"McPhy = electrolyseurs hydrogene, subventions europeennes, tres volatile",
     "AIL.PA": "Air Liquide = gaz industriels et hydrogene, dividende stable depuis 40 ans",
     # Crypto
-    "BTC-EUR": "Bitcoin = reference crypto, correle Nasdaq/tech a 60-70%, signal macro risk-on/off",
-    "ETH-EUR": "Ethereum = infra DeFi et IA, monte avec adoption tech et cloud",
-    "SOL-EUR": "Solana = blockchain rapide, adoption institutionnelle 2026, beta eleve",
-    "XRP-EUR": "XRP = paiements institutionnels, ETF 2026, correle adoption bancaire",
+    "BITC.AS": "CS Bitcoin ETP = reference crypto, correle Nasdaq 60-70%, signal risk-on/off, frais 0.15%",
+    "CETH.AS": "CS Ethereum ETP = infra DeFi et IA, staking inclus, frais 0.00%",
+    "SLNC.AS": "CS Solana ETP = blockchain rapide, adoption institutionnelle 2026, beta tres eleve",
+    "CXRP.AS": "CS XRP ETP = paiements institutionnels, ETF XRP 2026, correle adoption bancaire",
 }
 
 # ============================================================
@@ -1807,22 +1807,27 @@ def analyse_complete(moment="scan", force=False):
         if ticker == "CAP.PA" and sig["type"] == "ACHAT":
             rsi = sig.get("rsi")
             if rsi and rsi > 45:
-                raison_rejet = "RSI Capgemini {} trop eleve — score geo seul insuffisant".format(
-                    round(rsi, 1))
+                raison_rejet = "RSI Capgemini {:.1f} trop eleve — score geo seul insuffisant".format(rsi)
 
-        # Actions US (Microsoft) : invalide si RSI > 65 (zone de prudence)
+        # Schneider : invalide si RSI > 50 (neutre, pas survendu)
+        if ticker == "SU.PA" and sig["type"] == "ACHAT":
+            rsi = sig.get("rsi")
+            if rsi and rsi > 50:
+                raison_rejet = "RSI Schneider {:.1f} neutre (>50) — pas de zone d achat".format(rsi)
+
+        # Actions US (Microsoft) : invalide si RSI > 65
         if ticker == "MSFT" and sig["type"] == "ACHAT":
             rsi = sig.get("rsi")
             if rsi and rsi > 65:
-                raison_rejet = "RSI Microsoft {} trop eleve (>65) — zone de prudence".format(
-                    round(rsi, 1))
+                raison_rejet = "RSI Microsoft {:.1f} trop eleve (>65) — zone de prudence".format(rsi)
 
-        # Toutes actions : invalide si RSI > 65 sauf signal tres fort score > 80
+        # Toutes actions : invalide si RSI > 55 et score < 80
+        # RSI > 55 = marche en territoire neutre a haussier, pas une zone d achat
         if sig["type"] == "ACHAT" and sig.get("score", 0) < 80:
             rsi = sig.get("rsi")
-            if rsi and rsi > 65:
-                raison_rejet = "RSI {} trop eleve ({:.1f}>65) — zone de prudence, attendre correction".format(
-                    sig.get("nom","?"), rsi)
+            if rsi and rsi > 55:
+                raison_rejet = "RSI {:.1f} > 55 — score geo insuffisant pour achat en zone neutre ({})".format(
+                    rsi, sig.get("nom","?"))
 
         # TotalEnergies : invalide si WTI baisse
         if ticker == "TTE.PA" and sig["type"] == "ACHAT":
@@ -2225,13 +2230,39 @@ Reponds en JSON strict (sans markdown) :
         )
         raw = resp.content[0].text.strip()
 
-        # Parser le JSON
+        # Parser le JSON — nettoyage robuste
         import re
-        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if json_match:
-            optim = json.loads(json_match.group())
-        else:
-            optim = json.loads(raw)
+        # Supprimer les blocs markdown
+        raw_clean = re.sub(r'```json|```', '', raw).strip()
+        # Extraire le premier objet JSON valide
+        optim = None
+        for pattern in [r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', r'\{.*?\}']:
+            match = re.search(pattern, raw_clean, re.DOTALL)
+            if match:
+                try:
+                    optim = json.loads(match.group())
+                    break
+                except json.JSONDecodeError:
+                    # Essayer de nettoyer les caracteres speciaux
+                    cleaned = match.group()
+                    cleaned = cleaned.replace('\n', ' ').replace('\r', '')
+                    cleaned = re.sub(r',\s*}', '}', cleaned)  # Trailing commas
+                    cleaned = re.sub(r',\s*]', ']', cleaned)
+                    try:
+                        optim = json.loads(cleaned)
+                        break
+                    except:
+                        continue
+        if not optim:
+            # Fallback : construire un dict minimal depuis le texte
+            print("[AUTO-OPTIM] JSON invalide, fallback texte")
+            optim = {
+                "diagnostic": raw_clean[:200],
+                "ajustements": [],
+                "regle_apprise": "Parsing JSON echoue — voir logs Railway",
+                "score_confiance_portefeuille": 50,
+                "resume_telegram": "Optimisation effectuee (parsing partiel)"
+            }
 
         # Appliquer les ajustements
         ajustements_appliques = []
