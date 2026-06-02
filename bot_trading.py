@@ -68,7 +68,7 @@ SEUILS = {
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 3,  "px_revient": 85.51},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 3,  "px_revient": 166.78},
     "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 2,  "px_revient": 289.87},
-    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 8,  "px_revient": 243.32},
+    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 9,  "px_revient": 240.99},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 3,  "px_revient": 317.02},
     "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 2,  "px_revient": 270.33},
     "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 1,  "px_revient": 325.84},
@@ -920,9 +920,9 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
         "Marche: {}\nQ: {}".format(" | ".join(ctx[:6]), question_user)})
     if len(HISTORIQUE_CONVERSATION) > 8:
         HISTORIQUE_CONVERSATION = HISTORIQUE_CONVERSATION[-8:]
-    system = ("Agent financier Matthieu. Thales 8@243EUR Dassault 3@317EUR "
+    system = ("Agent financier Matthieu. Thales 9@240.99EUR Dassault 3@317EUR "
               "Orange 83@10.70EUR(dividende juin-NE PAS VENDRE) MSFT 1@325EUR "
-              "Cash 240EUR. Reponds en max 80 mots, chiffres precis.")
+              "Cash 64EUR. Reponds en max 80 mots, chiffres precis.")
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -1631,7 +1631,7 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
 PORTEFEUILLE (flat tax 30%, horizon 1 an) :
 {positions}
-Cash : ~240EUR | PV totale : {pv:+.0f}EUR
+Cash : ~64EUR | PV totale : {pv:+.0f}EUR
 {div}
 
 MARCHE {moment} {date} :
