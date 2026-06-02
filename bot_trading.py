@@ -1641,6 +1641,15 @@ NEWS : {news}
 SENTIMENT : {sentiment}
 {signaux}
 
+REGLES ABSOLUES INVIOLABLES :
+1. JAMAIS proposer d achat si cash (~64EUR) < prix de l action. C est mathematiquement impossible.
+2. JAMAIS proposer 0.5 action ou fraction d action. Uniquement des entiers : 1, 2 ou 3.
+3. JAMAIS proposer achat Microsoft si RSI > 65. RSI 77 = zone de VENTE pas d achat.
+4. JAMAIS vendre Orange avant juillet 2026.
+5. Prix toujours en EUR. Ordre limite pour Microsoft.
+6. Si cash < 200EUR : aucun achat possible sauf si prix action < cash disponible.
+7. Score geo seul (sans RSI survendu < 40) = signal invalide pour achat.
+
 REGLES DE RAISONNEMENT (applique dans cet ordre) :
 1. Verifier les CONTRADICTIONS avant tout signal :
    - Safran/Thales/Dassault RSI > 65 = NE PAS acheter, envisager vente partielle si RSI > 75
