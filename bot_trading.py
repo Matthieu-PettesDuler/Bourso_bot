@@ -90,6 +90,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
+    "SPCX":    {"nom": "SpaceX",            "achat": 80.00, "vente": 200.00,"type": "WATCH-US","secteur": "Spatial/IA", "ipo": True},
     # PEA
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe"},
@@ -133,6 +134,7 @@ CORRELATIONS = {
     "CETH.AS": "CS Ethereum ETP = infra DeFi et IA, staking inclus, frais 0.00%",
     "SLNC.AS": "CS Solana ETP = blockchain rapide, adoption institutionnelle 2026, beta tres eleve",
     "CXRP.AS": "CS XRP ETP = paiements institutionnels, ETF XRP 2026, correle adoption bancaire",
+    "SPCX":    "SpaceX IPO 12/06/2026 Nasdaq = spatial+IA+Starlink+xAI, 1750Mds$ valorisation, concurrent Eutelsat",
 }
 
 # ============================================================
@@ -269,7 +271,7 @@ KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine
                    "negociation iran", "fin guerre", "rubio", "trump iran",
                    "bitcoin", "ethereum", "crypto", "btc", "eth", "solana",
                    "xrp", "halving", "defi", "etf bitcoin", "sec crypto",
-                   "regulation crypto", "blockchain"]
+                   "regulation crypto", "blockchain", "spacex", "spcx", "starlink", "ipo spacex", "xai", "terafab"]
 
 # ============================================================
 # CAPITOL TRADES — Trades des elus US Congress
@@ -1644,11 +1646,13 @@ SENTIMENT : {sentiment}
 REGLES ABSOLUES INVIOLABLES :
 1. JAMAIS proposer d achat si cash (~64EUR) < prix de l action. C est mathematiquement impossible.
 2. JAMAIS proposer 0.5 action ou fraction d action. Uniquement des entiers : 1, 2 ou 3.
-3. JAMAIS proposer achat Microsoft si RSI > 65. RSI 77 = zone de VENTE pas d achat.
+3. JAMAIS proposer achat si RSI > 65. RSI > 70 = zone de SURACHAT (pas survente). RSI < 30 = zone de SURVENTE.
 4. JAMAIS vendre Orange avant juillet 2026.
 5. Prix toujours en EUR. Ordre limite pour Microsoft.
 6. Si cash < 200EUR : aucun achat possible sauf si prix action < cash disponible.
 7. Score geo seul (sans RSI survendu < 40) = signal invalide pour achat.
+
+TERMINOLOGIE : RSI > 70 = SURACHAT (cours trop haut, risque correction). RSI < 30 = SURVENTE (cours trop bas, opportunite achat). Ne jamais confondre.
 
 REGLES DE RAISONNEMENT (applique dans cet ordre) :
 1. Verifier les CONTRADICTIONS avant tout signal :
