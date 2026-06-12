@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v10.7 - Auto-deploiement GitHub
-Nouveautes vs v10.6 :
-- GITHUB_TOKEN : le bot peut modifier son propre code et se redéployer
-- auto_patch() : applique des corrections de code via l API GitHub
-- auto_update_portfolio() : met a jour le portefeuille dans le code automatiquement
-- Commande 'patch' : force un redéploiement depuis Telegram
-- Versioning automatique : chaque modification incremente la version
-- Historique des patches conserve en memoire
-- Garde-fous : validation syntaxe Python avant tout push
+Agent Trading Matthieu v11.0 — "Fable upgrade"
+Nouveautes vs v10.8 :
+- SPCX integre en position reelle CTO-US : 1 titre @ 120.75EUR (vente partielle 12/06, +25.72EUR realises)
+- Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
+- Scan US dedie 15h30-22h00 Paris (SPCX + MSFT + crypto) — le bot ne dort plus a 17h30
+- Cash dynamique : commande Telegram "cash 881" — fini le 64EUR code en dur dans les prompts
+- Enregistrement AUTOMATIQUE des decisions envoyees → backtest et auto-optimisation enfin alimentes
+- Auto-optimisation corrigee : taux d echec calcule sur le backtest reel (bug v10.7 : champ inexistant)
+- Sanity-check donnees : variation journaliere aberrante (>25% hors crypto/IPO) → donnee flaggee, pas de signal
+- Prompt Claude enrichi : cash reel, SPCX, regles Capgemini stop-loss explicites
+- Modele Claude mis a jour : claude-sonnet-4-6
+- Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 """
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
@@ -22,26 +25,25 @@ import pytz
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")        # Token GitHub pour auto-deploy
+GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO       = os.environ.get("GITHUB_REPO", "Matthieu-PettesDuler/Bourso_bot")
 GITHUB_FILE       = os.environ.get("GITHUB_FILE", "bot_trading.py")
 MEMOIRE_FILE      = "/tmp/memoire_matthieu.json"
-BOT_FILE_LOCAL    = "/app/bot_trading.py"  # Chemin du fichier sur Railway
+BOT_FILE_LOCAL    = "/app/bot_trading.py"
 PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
+CASH_DEFAULT      = 881.67   # Cash au 12/06/2026 apres vente 1 SPCX — modifiable via Telegram "cash X"
+CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
 # DIVIDENDES — Protection avant detachement
-# Format : "ticker": {"date_detachement": "YYYY-MM-DD", "montant_net": X}
-# Le bot refuse de suggerer une vente avant cette date
 # ============================================================
 DIVIDENDES = {
-    "ORA.PA": {"date_detachement": "2026-06-10", "montant_net": 100,  "note": "Dividende Orange ~100EUR nets juin 2026"},
-    "SU.PA":  {"date_detachement": "2026-05-11", "montant_net": 8.80, "note": "Dividende Schneider 4.20EUR/action (x3 = ~8.80EUR nets)"},
+    "ORA.PA": {"date_detachement": "2026-06-10", "montant_net": 100,  "note": "Dividende Orange ~100EUR nets juin 2026 — DETACHE, verifier versement sur le compte"},
+    "SU.PA":  {"date_detachement": "2026-05-11", "montant_net": 8.80, "note": "Dividende Schneider 4.20EUR/action (x2 = ~8.40EUR nets)"},
 }
 
 def protection_dividende(ticker):
-    """Retourne un avertissement si on approche du detachement dividende"""
     if ticker not in DIVIDENDES:
         return None
     div = DIVIDENDES[ticker]
@@ -58,10 +60,11 @@ def protection_dividende(ticker):
     return None
 
 # ============================================================
-# PORTEFEUILLE REEL — MIS A JOUR 04/05/2026
+# PORTEFEUILLE REEL — MIS A JOUR 12/06/2026
+# Vente partielle SPCX : 2 titres alloues IPO @120.75, 1 vendu @~146.5 (+25.72EUR)
 # ============================================================
 SEUILS = {
-    # CTO — Positions reelles (mis a jour 04/05/2026)
+    # CTO — Positions reelles
     "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 83, "px_revient": 10.70},
     "CAP.PA":  {"nom": "Capgemini",         "achat": 85.00, "vente": 130.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 4,  "px_revient": 131.07},
     "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 12, "px_revient": 78.84},
@@ -72,14 +75,17 @@ SEUILS = {
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 3,  "px_revient": 317.02},
     "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 2,  "px_revient": 270.33},
     "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 1,  "px_revient": 325.84},
-    # Surveillance — Aeroport + Luxe francais
+    # SPCX — POSITION REELLE depuis IPO 12/06/2026
+    # 2 titres alloues @120.75EUR, 1 vendu 12/06 @~146.5EUR (+25.72EUR realises)
+    # achat=112EUR : zone de renforcement si repli post-IPO | vente=200EUR : objectif long terme
+    "SPCX":    {"nom": "SpaceX",            "achat": 112.00,"vente": 200.00,"type": "CTO-US",  "secteur": "Spatial/IA",   "quantite": 1,  "px_revient": 120.75, "ipo": True, "ipo_date": "2026-06-12"},
+    # Surveillance
     "DSY.PA":  {"nom": "Dassault Systemes", "achat": 15.00, "vente": 38.00, "type": "WATCH",   "secteur": "Tech/IA"},
     "EN.PA":   {"nom": "Edenred",           "achat": 40.00, "vente": 60.00, "type": "WATCH",   "secteur": "Fintech"},
     "ADP.PA":  {"nom": "ADP Aeroports",     "achat": 90.00, "vente": 140.00,"type": "WATCH",   "secteur": "Infrastructure"},
     "MC.PA":   {"nom": "LVMH",              "achat": 450.00,"vente": 750.00,"type": "WATCH",   "secteur": "Luxe"},
     "RMS.PA":  {"nom": "Hermes",            "achat": 2000.00,"vente":3500.00,"type": "WATCH",  "secteur": "Luxe"},
     "KER.PA":  {"nom": "Kering",            "achat": 200.00,"vente": 380.00,"type": "WATCH",   "secteur": "Luxe"},
-    # Nouvelles valeurs emergentes v10.6
     "SOI.PA":  {"nom": "Soitec",            "achat": 80.00, "vente": 160.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
     "STM.PA":  {"nom": "STMicroelectronics","achat": 15.00, "vente": 35.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
     "VIE.PA":  {"nom": "Veolia",            "achat": 25.00, "vente": 40.00, "type": "WATCH",   "secteur": "Eau/Environnement"},
@@ -90,12 +96,10 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    "SPCX":    {"nom": "SpaceX",            "achat": 80.00, "vente": 200.00,"type": "WATCH-US","secteur": "Spatial/IA", "ipo": True},
     # PEA
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe"},
-    # CRYPTO — ETNs CoinShares sur Euronext (Boursomarks)
-    # Ordre au marche comme une action francaise, comptes CTO uniquement
+    # CRYPTO — ETNs CoinShares Euronext
     "BITC.AS": {"nom": "CS Bitcoin",  "achat": 50.00, "vente": 120.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     "CETH.AS": {"nom": "CS Ethereum", "achat": 40.00, "vente": 100.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     "SLNC.AS": {"nom": "CS Solana",   "achat": 5.00,  "vente": 20.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
@@ -114,27 +118,30 @@ CORRELATIONS = {
     "HO.PA":  "Thales beneficie du rearmement europeen",
     "AM.PA":  "Dassault Aviation liee au Rafale et budget defense",
     "SU.PA":  "Schneider profite de l'electrification et des data centers IA",
-    "ORA.PA": "Orange resiste en crise, dividende stable — NE PAS VENDRE avant juin 2026",
-    "CAP.PA": "Capgemini suit la demande IA/IT des entreprises",
+    "ORA.PA": "Orange resiste en crise, dividende stable — NE PAS VENDRE avant juillet 2026",
+    "CAP.PA": "Capgemini suit la demande IA/IT — position en stop-loss (-26%), decision a trancher : couper ou conviction IA",
     "MSFT":   "Microsoft beneficie de l'IA via Azure et OpenAI — ordre limite obligatoire",
     "PLTR":   "Palantir = IA defense, monte avec contrats gouvernement US et rearmement",
-    "GOOGL":  "Alphabet/Google = IA via Gemini et Google Cloud, concurrent direct OpenAI/Anthropic",
-    "ADP.PA": "ADP Aeroports = trafic mondial, tourisme, Paris-CDG meilleur aeroport Europe 2026",
-    "MC.PA":  "LVMH = barometre du luxe mondial, sensible consommation Chine et tourisme",
-    "RMS.PA": "Hermes = luxe ultra-premium, resilient en crise, pricing power exceptionnel",
-    "KER.PA": "Kering = Gucci/YSL, plus sensible aux cycles eco que LVMH et Hermes",
-    "SOI.PA": "Soitec = semi-conducteurs SOI, fournisseur Apple/TSMC, beta eleve, cycles semis",
-    "STM.PA": "STMicro = semi-conducteurs europeens, automobile electrique et IoT",
-    "VIE.PA": "Veolia = eau et dechets, valeur defensive ESG, croissance reguliere",
-    "ETL.PA": "Eutelsat = satellites LEO, concurrence SpaceX Starlink, tres speculatif",
-    "MCPHY.PA":"McPhy = electrolyseurs hydrogene, subventions europeennes, tres volatile",
-    "AIL.PA": "Air Liquide = gaz industriels et hydrogene, dividende stable depuis 40 ans",
-    # Crypto
-    "BITC.AS": "CS Bitcoin ETP = reference crypto, correle Nasdaq 60-70%, signal risk-on/off, frais 0.15%",
-    "CETH.AS": "CS Ethereum ETP = infra DeFi et IA, staking inclus, frais 0.00%",
-    "SLNC.AS": "CS Solana ETP = blockchain rapide, adoption institutionnelle 2026, beta tres eleve",
-    "CXRP.AS": "CS XRP ETP = paiements institutionnels, ETF XRP 2026, correle adoption bancaire",
-    "SPCX":    "SpaceX IPO 12/06/2026 Nasdaq = spatial+IA+Starlink+xAI, 1750Mds$ valorisation, concurrent Eutelsat",
+    "GOOGL":  "Alphabet/Google = IA via Gemini et Google Cloud",
+    "ADP.PA": "ADP Aeroports = trafic mondial, tourisme",
+    "MC.PA":  "LVMH = barometre du luxe mondial, sensible consommation Chine",
+    "RMS.PA": "Hermes = luxe ultra-premium, resilient en crise",
+    "KER.PA": "Kering = Gucci/YSL, plus cyclique que LVMH et Hermes",
+    "SOI.PA": "Soitec = semi-conducteurs SOI, beta eleve",
+    "STM.PA": "STMicro = semi europeens, automobile electrique et IoT",
+    "VIE.PA": "Veolia = eau et dechets, valeur defensive ESG",
+    "ETL.PA": "Eutelsat = satellites LEO, concurrence frontale Starlink/SPCX, tres speculatif",
+    "MCPHY.PA":"McPhy = electrolyseurs hydrogene, tres volatile",
+    "AIL.PA": "Air Liquide = gaz industriels et hydrogene, dividende stable",
+    "BITC.AS": "CS Bitcoin ETP = correle Nasdaq 60-70%, signal risk-on/off. SPCX detient 18712 BTC en tresorerie → correlation SPCX/BTC",
+    "CETH.AS": "CS Ethereum ETP = infra DeFi, staking inclus",
+    "SLNC.AS": "CS Solana ETP = beta tres eleve",
+    "CXRP.AS": "CS XRP ETP = paiements institutionnels",
+    "SPCX":   ("SpaceX cotee 12/06/2026 (IPO 135USD, +25% jour 1). POSITION : 1 titre @120.75EUR "
+               "(vente partielle 12/06 @146.5EUR, +25.72EUR realises, allocation 2/7). "
+               "Starlink = 69% du CA. xAI fusionne fev 2026. 18712 BTC en tresorerie. "
+               "Soutien MSCI inclusion indices 30-90j post-IPO. "
+               "Phase 2 : renforcer si repli <112EUR avec RSI<45. Prise de profit partielle si >+40% vs PRU."),
 }
 
 # ============================================================
@@ -154,7 +161,6 @@ GEO_IMPACT = {
     "ukraine":      {"SAF.PA": +20, "HO.PA": +20, "AM.PA": +20, "TTE.PA": +10},
     "russie":       {"SAF.PA": +15, "HO.PA": +15, "AM.PA": +15, "TTE.PA": +10},
     "guerre":       {"GC=F": +15, "SAF.PA": +10, "HO.PA": +10},
-    # Accord Iran/Ormuz v10.7 — nuances apaisement
     "cessez":       {"SAF.PA": -10, "HO.PA": -10, "AM.PA": -10},
     "cessez-le-feu":{"SAF.PA": -15, "HO.PA": -15, "AM.PA": -15, "TTE.PA": -10, "GC=F": -15},
     "accord iran":  {"TTE.PA": -15, "GC=F": -20, "SAF.PA": -10, "HO.PA": -10, "AIR.PA": +10},
@@ -173,8 +179,8 @@ GEO_IMPACT = {
     "fed":          {"MSFT": -5, "BNP.PA": +5},
     "inflation":    {"TTE.PA": +10, "GC=F": +15, "BNP.PA": -5},
     "recession":    {"ORA.PA": +10, "GC=F": +20, "CAP.PA": -15},
-    "intelligence artificielle": {"MSFT": +15, "CAP.PA": +10, "SU.PA": +10, "NVDA": +20},
-    "ia":           {"MSFT": +10, "CAP.PA": +10, "SU.PA": +10},
+    "intelligence artificielle": {"MSFT": +15, "CAP.PA": +10, "SU.PA": +10, "NVDA": +20, "SPCX": +10},
+    "ia":           {"MSFT": +10, "CAP.PA": +10, "SU.PA": +10, "SPCX": +5},
     "cloud":        {"MSFT": +15, "CAP.PA": +10},
     "openai":       {"MSFT": +20, "PLTR": +10},
     "anthropic":    {"MSFT": +15, "NVDA": +10, "PLTR": +5},
@@ -198,7 +204,6 @@ GEO_IMPACT = {
     "airbus":       {"AIR.PA": +10},
     "boeing":       {"AIR.PA": +5},
     "avion":        {"AIR.PA": +5, "SAF.PA": +5},
-    # Luxe francais
     "luxe":         {"MC.PA": +15, "RMS.PA": +15, "KER.PA": +15},
     "lvmh":         {"MC.PA": +20},
     "hermes":       {"RMS.PA": +20},
@@ -209,39 +214,47 @@ GEO_IMPACT = {
     "trafic aerien":{"ADP.PA": +20, "AIR.PA": +10},
     "aeroport":     {"ADP.PA": +15},
     "adp":          {"ADP.PA": +20},
-    "brand finance":{"AIR.PA": +10, "BNP.PA": +5},
     "souverainete": {"AIR.PA": +15, "SAF.PA": +10, "HO.PA": +10},
     "industrie":    {"AIR.PA": +5, "SAF.PA": +5},
-    "stock act":    {"MSFT": +5, "NVDA": +5},
     "pelosi":       {"MSFT": +10, "NVDA": +10},
-    # Semi-conducteurs
     "semi-conducteur": {"SOI.PA": +20, "STM.PA": +20, "NVDA": +15},
     "puce":            {"SOI.PA": +15, "STM.PA": +15, "NVDA": +10},
     "tsmc":            {"SOI.PA": +20, "NVDA": +10},
     "automobile electrique": {"STM.PA": +20},
-    # Hydrogene
     "hydrogene":       {"MCPHY.PA": +25, "AIL.PA": +15, "SU.PA": +10},
     "electrolyse":     {"MCPHY.PA": +25},
     "energie verte":   {"MCPHY.PA": +15, "AIL.PA": +10, "SU.PA": +10},
     "nucleaire":       {"AIL.PA": +10, "SU.PA": +5},
-    # Spatial
-    "satellite":       {"ETL.PA": +20, "AIR.PA": +5},
-    "starlink":        {"ETL.PA": -15},
-    "spacex":          {"ETL.PA": -10},
-    "espace":          {"ETL.PA": +15, "AIR.PA": +10},
-    # Eau / Environnement
+    # Spatial — SPCX desormais en portefeuille
+    "satellite":       {"ETL.PA": +20, "AIR.PA": +5, "SPCX": +10},
+    "starlink":        {"ETL.PA": -15, "SPCX": +20},
+    "spacex":          {"ETL.PA": -10, "SPCX": +15},
+    "starship":        {"SPCX": +20},
+    "falcon":          {"SPCX": +10},
+    "xai":             {"SPCX": +15, "MSFT": -5},
+    "grok":            {"SPCX": +10},
+    "musk":            {"SPCX": +10},
+    "espace":          {"ETL.PA": +15, "AIR.PA": +10, "SPCX": +10},
+    "nasa":            {"SPCX": +10},
+    "mars":            {"SPCX": +10},
+    "echec lancement": {"SPCX": -25},
+    "explosion fusee": {"SPCX": -25},
     "eau":             {"VIE.PA": +20},
     "secheresse":      {"VIE.PA": +25},
     "environnement":   {"VIE.PA": +10, "MCPHY.PA": +5},
     "esg":             {"VIE.PA": +10, "SU.PA": +5},
+    # Crypto — correlation SPCX (18712 BTC en tresorerie)
+    "bitcoin":         {"BITC.AS": +15, "SPCX": +5},
+    "etf bitcoin":     {"BITC.AS": +20},
+    "halving":         {"BITC.AS": +15},
 }
 
-# Mapping Capitol Trades tickers US → tickers portefeuille
 CAPITOL_TICKER_MAP = {
     "MSFT":  "MSFT",
     "NVDA":  "NVDA",
     "PLTR":  "PLTR",
     "GOOGL": "GOOGL",
+    "SPCX":  "SPCX",
     "AMZN":  None,
     "AAPL":  None,
 }
@@ -257,7 +270,7 @@ RSS_FEEDS = [
 KEYWORDS_PORTEFEUILLE = ["orange", "bnp", "total", "capgemini", "airbus", "safran",
                           "thales", "dassault", "schneider", "microsoft", "nvidia",
                           "palantir", "alphabet", "google", "lvmh", "hermes", "kering",
-                          "adp", "aeroport", "luxe"]
+                          "adp", "aeroport", "luxe", "spacex", "starlink", "spcx"]
 KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine",
                    "fed", "bce", "taux", "recession", "petrole", "inflation",
                    "intelligence artificielle", "rearmement", "ormuz", "cessez",
@@ -265,34 +278,41 @@ KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine
                    "nvidia", "anthropic", "openai", "pelosi", "congress", "senate",
                    "palantir", "gemini", "gpt", "llm", "cyber", "maven", "aip",
                    "google ai", "alphabet", "contrat gouvernement",
-                   "luxe", "tourisme", "trafic aerien", "brand finance",
+                   "luxe", "tourisme", "trafic aerien",
                    "souverainete", "chine consommation", "gucci",
                    "accord iran", "cessez-le-feu", "reouverture ormuz",
-                   "negociation iran", "fin guerre", "rubio", "trump iran",
+                   "negociation iran", "fin guerre", "rubio",
                    "bitcoin", "ethereum", "crypto", "btc", "eth", "solana",
                    "xrp", "halving", "defi", "etf bitcoin", "sec crypto",
-                   "regulation crypto", "blockchain", "spacex", "spcx", "starlink", "ipo spacex", "xai", "terafab"]
+                   "regulation crypto", "blockchain",
+                   "spacex", "spcx", "starlink", "starship", "xai", "musk", "falcon", "nasa"]
 
 # ============================================================
-# CAPITOL TRADES — Trades des elus US Congress
+# CASH DYNAMIQUE v11.0 — fini le cash code en dur
+# ============================================================
+def get_cash():
+    """Cash disponible — lu depuis la memoire, modifiable via Telegram 'cash X'."""
+    m = load_memoire()
+    return m.get("params", {}).get("cash_dispo", CASH_DEFAULT)
+
+def set_cash(montant):
+    m = load_memoire()
+    m.setdefault("params", {})["cash_dispo"] = round(float(montant), 2)
+    save_memoire(m)
+    return m["params"]["cash_dispo"]
+
+# ============================================================
+# CAPITOL TRADES
 # ============================================================
 def get_capitol_trades():
-    """
-    Recupere les derniers trades des elus US depuis Capitol Trades (gratuit).
-    Filtre sur les tickers du portefeuille.
-    Retourne liste de dicts : {politician, party, action, ticker, size, date}
-    """
     trades = []
     try:
-        # Capitol Trades API publique (pas de cle requise)
         url = "https://www.capitoltrades.com/trades?pageSize=96&page=1"
         headers = {
             "User-Agent": "Mozilla/5.0 (compatible; trading-bot/1.0)",
             "Accept": "application/json, text/html",
         }
         r = requests.get(url, headers=headers, timeout=10)
-
-        # Tentative parsing JSON si disponible
         if "application/json" in r.headers.get("Content-Type", ""):
             data = r.json()
             for trade in data.get("trades", data.get("data", [])):
@@ -307,11 +327,10 @@ def get_capitol_trades():
                         "date":       trade.get("tradeDate", trade.get("date", "?")),
                     })
         else:
-            # Fallback : RSS Capitol Trades si disponible
             feed = feedparser.parse("https://www.capitoltrades.com/trades.rss")
             for entry in feed.entries[:20]:
                 title = entry.get("title", "").lower()
-                for ticker in list(CAPITOL_TICKER_MAP.keys()) + ["msft", "nvda"]:
+                for ticker in list(CAPITOL_TICKER_MAP.keys()) + ["msft", "nvda", "spcx"]:
                     if ticker.lower() in title:
                         action = "buy" if any(w in title for w in ["purchase", "buy", "bought"]) else "sell"
                         trades.append({
@@ -324,17 +343,10 @@ def get_capitol_trades():
                         })
     except Exception as e:
         print("[Capitol Trades] Erreur : " + str(e))
-
-    return trades[:10]  # Max 10 trades recents
+    return trades[:10]
 
 
 def score_capitol(ticker, trades):
-    """
-    Calcule le score Capitol pour un ticker :
-    +20 si un elu a achete recemment
-    -20 si un elu a vendu recemment
-    Retourne (score, resume_str)
-    """
     score = 0
     resume = []
     for t in trades:
@@ -349,23 +361,14 @@ def score_capitol(ticker, trades):
     score = max(-30, min(30, score))
     return score, resume
 
-
-
 # ============================================================
-# AUTO-DEPLOIEMENT GITHUB v10.7
-# Le bot peut modifier son propre code et se redéployer
+# AUTO-DEPLOIEMENT GITHUB
 # ============================================================
-
 def github_get_file():
-    """
-    Recupere le contenu actuel du fichier sur GitHub.
-    Retourne (contenu_base64, sha) necessaires pour le push.
-    """
     if not GITHUB_TOKEN:
         return None, None
     try:
-        url = "https://api.github.com/repos/{}/contents/{}".format(
-            GITHUB_REPO, GITHUB_FILE)
+        url = "https://api.github.com/repos/{}/contents/{}".format(GITHUB_REPO, GITHUB_FILE)
         r = requests.get(url, headers={
             "Authorization": "token " + GITHUB_TOKEN,
             "Accept": "application/vnd.github.v3+json"
@@ -379,25 +382,14 @@ def github_get_file():
 
 
 def github_push_file(nouveau_contenu, message_commit, sha):
-    """
-    Pousse le nouveau code sur GitHub.
-    Railway redémarre automatiquement après le push.
-    Retourne True si succes.
-    """
     if not GITHUB_TOKEN:
         print("[GITHUB PUSH] GITHUB_TOKEN manquant")
         return False
     try:
         import base64
-        contenu_b64 = base64.b64encode(
-            nouveau_contenu.encode("utf-8")).decode("utf-8")
-        url = "https://api.github.com/repos/{}/contents/{}".format(
-            GITHUB_REPO, GITHUB_FILE)
-        payload = {
-            "message": message_commit,
-            "content": contenu_b64,
-            "sha": sha
-        }
+        contenu_b64 = base64.b64encode(nouveau_contenu.encode("utf-8")).decode("utf-8")
+        url = "https://api.github.com/repos/{}/contents/{}".format(GITHUB_REPO, GITHUB_FILE)
+        payload = {"message": message_commit, "content": contenu_b64, "sha": sha}
         r = requests.put(url, json=payload, headers={
             "Authorization": "token " + GITHUB_TOKEN,
             "Accept": "application/vnd.github.v3+json"
@@ -406,8 +398,7 @@ def github_push_file(nouveau_contenu, message_commit, sha):
             print("[GITHUB PUSH] OK : " + message_commit)
             return True
         else:
-            print("[GITHUB PUSH] Erreur {} : {}".format(
-                r.status_code, r.text[:200]))
+            print("[GITHUB PUSH] Erreur {} : {}".format(r.status_code, r.text[:200]))
             return False
     except Exception as e:
         print("[GITHUB PUSH] " + str(e))
@@ -415,7 +406,6 @@ def github_push_file(nouveau_contenu, message_commit, sha):
 
 
 def valider_syntaxe_python(code):
-    """Valide la syntaxe Python avant tout push — garde-fou critique."""
     import ast
     try:
         ast.parse(code)
@@ -425,62 +415,36 @@ def valider_syntaxe_python(code):
 
 
 def auto_patch(description_patch, ancien_code, nouveau_code, raison="auto-optimisation"):
-    """
-    Applique un patch sur le code GitHub :
-    1. Valide la syntaxe du nouveau code
-    2. Recupere le SHA actuel du fichier GitHub
-    3. Remplace l ancien code par le nouveau
-    4. Pousse sur GitHub
-    5. Railway redémarre automatiquement
-    Retourne True si succes.
-    """
     if not GITHUB_TOKEN:
         print("[PATCH] GITHUB_TOKEN non configure")
         return False
-
-    # Recuperer le code actuel depuis GitHub
     _, sha = github_get_file()
     if not sha:
         print("[PATCH] Impossible de recuperer le SHA GitHub")
         return False
-
-    # Lire le code local actuel
     try:
         code_actuel = open(BOT_FILE_LOCAL).read()
     except:
         print("[PATCH] Impossible de lire " + BOT_FILE_LOCAL)
         return False
-
-    # Verifier que l ancien code est bien present
     if ancien_code not in code_actuel:
         print("[PATCH] Ancien code non trouve dans le fichier")
         return False
-
-    # Appliquer le patch
     nouveau_fichier = code_actuel.replace(ancien_code, nouveau_code, 1)
-
-    # Valider la syntaxe AVANT de pousser
     ok, erreur = valider_syntaxe_python(nouveau_fichier)
     if not ok:
         msg = "[PATCH] ERREUR SYNTAXE — patch annule : " + erreur
         print(msg)
         send_telegram("🚫 <b>Patch annule</b> — erreur syntaxe :\n" + erreur)
         return False
-
-    # Incrementer la version dans le code
     import re
     nouveau_fichier = re.sub(
         r'Agent Trading Matthieu v(\d+)\.(\d+)',
-        lambda m: "Agent Trading Matthieu v{}.{}".format(
-            m.group(1), int(m.group(2)) + 1),
+        lambda m: "Agent Trading Matthieu v{}.{}".format(m.group(1), int(m.group(2)) + 1),
         nouveau_fichier, count=1)
-
-    # Pousser sur GitHub
-    message_commit = "v10.7 auto-patch : {}".format(description_patch[:72])
+    message_commit = "v11 auto-patch : {}".format(description_patch[:72])
     succes = github_push_file(nouveau_fichier, message_commit, sha)
-
     if succes:
-        # Sauvegarder en memoire
         m = load_memoire()
         patches = m.get("historique_patches", [])
         patches.append({
@@ -492,10 +456,8 @@ def auto_patch(description_patch, ancien_code, nouveau_code, raison="auto-optimi
         m["historique_patches"] = patches[-20:]
         save_memoire(m)
         send_telegram(
-            "✅ <b>Auto-patch applique !</b>\n"
-            "📝 {}\n"
-            "🚀 Railway redémarre dans ~30s avec le nouveau code.".format(
-                description_patch))
+            "✅ <b>Auto-patch applique !</b>\n📝 {}\n"
+            "🚀 Railway redémarre dans ~30s.".format(description_patch))
         return True
     else:
         send_telegram("❌ <b>Patch echoue</b> — verifier les logs Railway.")
@@ -503,260 +465,131 @@ def auto_patch(description_patch, ancien_code, nouveau_code, raison="auto-optimi
 
 
 def auto_update_portfolio(ticker, quantite, px_revient, action="achat"):
-    """
-    Met a jour automatiquement le portefeuille dans le code GitHub
-    apres un achat ou une vente confirme.
-    action : 'achat' ou 'vente'
-    """
     try:
-        # Chercher la ligne du ticker dans SEUILS
         import re
         _, sha = github_get_file()
         if not sha:
             return False
-
         code_actuel = open(BOT_FILE_LOCAL).read()
-
-        # Pattern pour trouver la ligne du ticker
         pattern = r'("{}"\s*:\s*\{{[^}}]+?"quantite"\s*:\s*)(\d+)([^}}]+?"px_revient"\s*:\s*)([0-9.]+)'.format(
             re.escape(ticker))
-
+        match = re.search(pattern, code_actuel)
+        if not match:
+            print("[UPDATE PORTFOLIO] Ticker {} non trouve (quantite/px_revient absents ?)".format(ticker))
+            send_telegram("❌ Mise a jour impossible : {} n a pas de champs quantite/px_revient dans SEUILS. Patch manuel requis.".format(ticker))
+            return False
         if action == "achat":
-            # Trouver la quantite actuelle
-            match = re.search(pattern, code_actuel)
-            if not match:
-                print("[UPDATE PORTFOLIO] Ticker {} non trouve".format(ticker))
-                return False
             qte_actuelle = int(match.group(2))
             px_actuel    = float(match.group(4))
             nouvelle_qte = qte_actuelle + quantite
-            # Nouveau PRU = moyenne ponderee
-            nouveau_pru  = round(
-                (qte_actuelle * px_actuel + quantite * px_revient) / nouvelle_qte, 2)
-        else:  # vente
-            match = re.search(pattern, code_actuel)
-            if not match:
-                return False
+            nouveau_pru  = round((qte_actuelle * px_actuel + quantite * px_revient) / nouvelle_qte, 2)
+        else:
             qte_actuelle = int(match.group(2))
             nouvelle_qte = max(0, qte_actuelle - quantite)
-            nouveau_pru  = float(match.group(4))  # PRU inchange
-
+            nouveau_pru  = float(match.group(4))
         if nouvelle_qte == 0:
-            # Supprimer la position (mettre quantite a 0)
             nouveau_pru = 0
-
         nouveau_code = re.sub(
             pattern,
-            lambda m: "{}{}{}{}".format(
-                m.group(1), nouvelle_qte, m.group(3), nouveau_pru),
+            lambda m: "{}{}{}{}".format(m.group(1), nouvelle_qte, m.group(3), nouveau_pru),
             code_actuel, count=1)
-
         ok, err = valider_syntaxe_python(nouveau_code)
         if not ok:
             print("[UPDATE PORTFOLIO] Syntaxe erreur : " + err)
             return False
-
         msg_commit = "Portfolio update : {} {} {} @ {}EUR PRU {}EUR".format(
             action.upper(), ticker, quantite, px_revient, nouveau_pru)
         succes = github_push_file(nouveau_code, msg_commit, sha)
-
         if succes:
             send_telegram(
-                "✅ <b>Portefeuille mis a jour automatiquement !</b>\n"
+                "✅ <b>Portefeuille mis a jour !</b>\n"
                 "📊 {} {} {} actions\n"
                 "💰 Nouveau PRU : {}EUR | Quantite : {}".format(
                     action.upper(), ticker, quantite, nouveau_pru, nouvelle_qte))
         return succes
-
     except Exception as e:
         print("[UPDATE PORTFOLIO] " + str(e))
         return False
 
+# ============================================================
+# SPCX — SURVEILLANCE POST-IPO EN 2 PHASES v11.0
+# Phase profit : si cours > PRU +40% → alerte prise de profit partielle
+# Phase renfort : si cours < seuil achat (112EUR) ET RSI < 45 → alerte renforcement
+# Fenetre : 90 jours post-IPO (periode du soutien MSCI), puis regime normal
+# ============================================================
+SPCX_PROFIT_PCT   = 40    # Alerte prise de profit si PV latente > +40%
+SPCX_RENFORT_RSI  = 45    # RSI max pour valider un renforcement
 
-def auto_optimisation_avec_patch():
-    """
-    Version enrichie de l auto-optimisation :
-    en plus d ajuster les params en memoire,
-    peut patcher le code si une amelioration structurelle est identifiee.
-    """
-    # D abord l optimisation standard
-    auto_optimisation()
+def check_spcx_ipo(d):
+    """Retourne une alerte SPCX si une des deux phases se declenche, sinon None."""
+    if d["ticker"] != "SPCX":
+        return None
+    s = SEUILS["SPCX"]
+    if not s.get("quantite") or not s.get("px_revient"):
+        return None
+    try:
+        ipo = datetime.strptime(s.get("ipo_date", "2026-06-12"), "%Y-%m-%d").date()
+        jours_post_ipo = (date.today() - ipo).days
+    except:
+        jours_post_ipo = 0
+    cours_eur = round(d["cours"] / EUR_USD_RATE, 2)
+    pv_pct = (cours_eur - s["px_revient"]) / s["px_revient"] * 100
+    rsi = d.get("rsi")
 
-    if not GITHUB_TOKEN:
-        return
+    # Phase profit
+    if pv_pct >= SPCX_PROFIT_PCT:
+        return ("🚀 <b>SPCX PRISE DE PROFIT</b> : {}EUR ({:+.1f}% vs PRU {}EUR). "
+                "Envisager de vendre le titre restant ou de remonter le stop mental. "
+                "J{} post-IPO (soutien MSCI ~90j).").format(
+                    cours_eur, pv_pct, s["px_revient"], jours_post_ipo)
+    # Phase renfort
+    if cours_eur <= s["achat"] and rsi and rsi < SPCX_RENFORT_RSI:
+        return ("🎯 <b>SPCX RENFORCEMENT</b> : repli a {}EUR (RSI {:.0f} < {}). "
+                "Zone de renforcement atteinte (seuil {}EUR). Cash dispo : {:.0f}EUR.").format(
+                    cours_eur, rsi, SPCX_RENFORT_RSI, s["achat"], get_cash())
+    # Volatilite extreme post-IPO (30 premiers jours) — info sans action
+    if jours_post_ipo <= 30 and abs(d["variation"]) >= 8:
+        return ("⚡ SPCX volatilite forte : {:+.1f}% aujourd hui ({}EUR). "
+                "Normal en periode post-IPO — pas d action automatique.").format(
+                    d["variation"], cours_eur)
+    return None
 
-    # Ensuite chercher si un patch de code est justifie
-    m = load_memoire()
-    decisions = m.get("decisions", [])
-    if len(decisions) < 5:
-        return  # Pas assez de donnees
-
-    # Analyser si les filtres anti-contradiction sont bien calibres
-    mauvaises = [d for d in decisions[-10:] if d.get("resultat") == "MAUVAIS"]
-    taux_echec = len(mauvaises) / min(len(decisions), 10)
-
-    if taux_echec > 0.4 and ANTHROPIC_API_KEY:
-        # Plus de 40% d echec → demander a Claude un patch specifique
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+# ============================================================
+# SANITY CHECK DONNEES v11.0
+# Une variation aberrante (>25% hors crypto/IPO recente) = donnee suspecte
+# → on flag, on ne genere PAS de signal dessus (bug WTI du 09/06 par ex.)
+# ============================================================
+def donnee_suspecte(d):
+    s = SEUILS.get(d["ticker"], {})
+    if s.get("type") == "CRYPTO":
+        return False
+    if s.get("ipo"):
         try:
-            msg = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=200,
-                messages=[{"role": "user", "content":
-                    "Le bot de trading a un taux d echec de {:.0f}%. "
-                    "Les mauvaises decisions recentes : {}. "
-                    "Propose UNE seule amelioration tres courte et precise "
-                    "pour les filtres anti-contradiction (max 20 mots).".format(
-                        taux_echec * 100,
-                        " | ".join([d.get("valeur","?") + " " + d.get("action","?")
-                                    for d in mauvaises[:3]]))}])
-            suggestion = msg.content[0].text
-            print("[AUTO-OPTIM] Suggestion patch : " + suggestion)
-            send_telegram(
-                "🧠 <b>Auto-optimisation avancee</b>\n"
-                "Taux echec : {:.0f}%\n"
-                "Suggestion : {}".format(taux_echec * 100, suggestion))
-        except Exception as e:
-            print("[AUTO-OPTIM PATCH] " + str(e))
-
-
-def formatter_capitol_telegram(trades):
-    """Formate les trades Capitol pour Telegram"""
-    if not trades:
-        return "Aucun trade recent detecte sur tes valeurs."
-
-    lignes = ["🏛 <b>Derniers trades des elus US :</b>"]
-    for t in trades:
-        emoji = "🟢" if any(w in t["action"].lower() for w in ["purchase","buy","bought"]) else "🔴"
-        lignes.append("{} {} ({}) — {} {} {}".format(
-            emoji, t["politician"], t["party"],
-            t["action"], t["ticker"], t["size"]))
-    return "\n".join(lignes)
+            ipo = datetime.strptime(s.get("ipo_date", "2000-01-01"), "%Y-%m-%d").date()
+            if (date.today() - ipo).days <= 30:
+                return False  # Volatilite IPO legitime
+        except:
+            pass
+    if abs(d.get("variation", 0)) > 25:
+        return True
+    # Cours hors bornes 52 semaines elargies de 30%
+    if d.get("high_52w") and d["cours"] > d["high_52w"] * 1.3:
+        return True
+    if d.get("low_52w") and d["cours"] < d["low_52w"] * 0.7 and d["low_52w"] > 0:
+        return True
+    return False
 
 # ============================================================
-# RECHERCHE WEB ACTIVE v10.6
+# CRYPTO — Scoring
 # ============================================================
-def recherche_web_active():
-    """
-    Recherche actu via RSS — rapide, sans tokens Claude.
-    Fallback sur les themes macro si pas de news specifiques.
-    """
-    try:
-        resultats = []
-        noms_valeurs = [
-            ("thales","defense"), ("dassault","defense"), ("airbus","aeronautique"),
-            ("totalenergies","energie"), ("total energies","energie"),
-            ("microsoft","tech"), ("capgemini","tech"), ("safran","defense"),
-            ("orange","telecom"), ("bnp","banque"), ("schneider","energie"),
-            ("nvidia","tech"), ("lvmh","luxe"), ("hermes","luxe")
-        ]
-        themes_macro = [
-            ("iran","geopolitique Iran"), ("ormuz","detroit Ormuz"),
-            ("ukraine","conflit Ukraine"), ("trump","tensions Trump"),
-            ("petrole","marche petrole"), ("cac","bourse Paris"),
-            ("fed","politique monetaire"), ("bce","politique BCE")
-        ]
-
-        for feed_info in RSS_FEEDS:
-            try:
-                feed = feedparser.parse(feed_info["url"])
-                for entry in feed.entries[:20]:
-                    titre = entry.get("title", "").strip()
-                    if not titre or len(titre) < 10: continue
-                    tl = titre.lower()
-
-                    # News sur nos valeurs
-                    for nom, secteur in noms_valeurs:
-                        if nom in tl and titre not in resultats:
-                            impact = "🟢" if any(w in tl for w in
-                                ["hausse","monte","bond","profit","gain","record",
-                                 "accord","positif","croissance","commande"]) else "🔴"
-                            resultats.append("{} {}".format(impact, titre[:75]))
-                            break
-            except:
-                pass
-
-        # Si pas de news specifiques → prendre les 2 meilleures news macro
-        if len(resultats) < 2:
-            for feed_info in RSS_FEEDS[:2]:
-                try:
-                    feed = feedparser.parse(feed_info["url"])
-                    for entry in feed.entries[:10]:
-                        titre = entry.get("title", "").strip()
-                        tl = titre.lower()
-                        for kw, label in themes_macro:
-                            if kw in tl and titre not in resultats:
-                                resultats.append("🌍 {}".format(titre[:75]))
-                                break
-                        if len(resultats) >= 3: break
-                except:
-                    pass
-
-        return "\n".join(resultats[:3]) if resultats else "Aucune actu specifique detectee"
-    except Exception as e:
-        print("[WEB RSS] " + str(e))
-        return ""
-
-
-def recherche_web_claude():
-    """
-    Version Claude avec web_search — uniquement sur demande explicite
-    via commande 'actu' ou 'news' dans Telegram.
-    Extrait uniquement le dernier bloc texte (resultat final, pas le raisonnement).
-    """
-    if not ANTHROPIC_API_KEY:
-        return ""
-    try:
-        attendre_rate_limit()
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
-        prompt = ("Donne-moi les 3 actualites financieres les plus importantes "
-                  "du {} pour un portefeuille : Thales Dassault Airbus TotalEnergies "
-                  "Microsoft Capgemini Orange BNP Safran. "
-                  "Reponds UNIQUEMENT avec 3 bullet points : "
-                  "• Societe : news → haussier/baissier").format(date_str)
-        msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=200,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{"role": "user", "content": prompt}]
-        )
-        # Prendre UNIQUEMENT le dernier bloc texte (resultat final)
-        # Les blocs intermediaires sont le raisonnement interne a ignorer
-        blocs_texte = [b.text for b in msg.content
-                       if hasattr(b, "text") and b.text and
-                       not b.text.startswith("Je vais") and
-                       not b.text.startswith("Maintenant") and
-                       not b.text.startswith("D apres")]
-        if blocs_texte:
-            return blocs_texte[-1].strip()[:300]
-        return ""
-    except Exception as e:
-        print("[WEB CLAUDE] " + str(e))
-        return ""
-
-# ============================================================
-# POSITION SIZING DYNAMIQUE v10.6
-# ============================================================
-# ============================================================
-# CRYPTO v10.8 — Scoring et signaux speciaux
-# La crypto necessite des seuils RSI differents (plus reactifs)
-# ============================================================
-
-# Seuils RSI crypto plus serres car volatilite elevee
-CRYPTO_RSI_ACHAT   = 35  # Plus haut que actions (30) car crypto rebondit plus vite
-CRYPTO_RSI_VENTE   = 65  # Plus bas que actions (70) car crypto corrige plus fort
-CRYPTO_STOP_LOSS   = 20  # Stop-loss 20% sur crypto (vs 15% actions)
+CRYPTO_RSI_ACHAT   = 35
+CRYPTO_RSI_VENTE   = 65
+CRYPTO_STOP_LOSS   = 20
 
 def calcul_score_crypto(d, geo_scores):
-    """
-    Score crypto specifique — plus reactif que les actions.
-    Prend en compte la volatilite elevee et les correlations macro.
-    """
     score_achat = 0
     score_vente  = 0
     ticker = d["ticker"]
-
     rsi = d.get("rsi")
     if rsi:
         if rsi < CRYPTO_RSI_ACHAT:
@@ -767,36 +600,26 @@ def calcul_score_crypto(d, geo_scores):
             score_vente += 45
         elif rsi > CRYPTO_RSI_VENTE:
             score_vente += 30
-
-    # MACD haussier/baissier
     if d.get("macd_croise") == "HAUSSIER":
         score_achat += 30
     elif d.get("macd_croise") == "BAISSIER":
         score_vente += 30
-
-    # Bollinger
     if d.get("bb_signal") == "SURVENDU":
         score_achat += 20
     elif d.get("bb_signal") == "SURCHETE":
         score_vente += 20
-
-    # Volume fort = confirmation
     if d.get("vol_ratio", 1) > 2.0:
         if d["variation"] > 0:
             score_achat += 20
         else:
             score_vente += 20
-
-    # Geo crypto
     geo = geo_scores.get(ticker, 0)
     score_achat = min(130, score_achat + max(0, geo))
     score_vente  = min(130, score_vente  + max(0, -geo))
-
     return score_achat, score_vente
 
 
 def check_stop_loss_crypto(donnees_ok):
-    """Stop-loss crypto a 20% (plus large que actions)."""
     alertes = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
@@ -822,11 +645,8 @@ def calcul_position_size(score, cours, cash_dispo):
         return 1
     return 0
 
-# ============================================================
-# STOP-LOSS AUTOMATIQUE v10.6
-# ============================================================
+
 def check_stop_loss(donnees_ok):
-    """Retourne les positions avec perte > 15 pct."""
     alertes = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
@@ -843,10 +663,10 @@ def check_stop_loss(donnees_ok):
     return alertes
 
 # ============================================================
-# DECOUVERTE SOCIETES EMERGENTES v10.6
+# DECOUVERTE SOCIETES EMERGENTES
 # ============================================================
 def decouverte_societes_emergentes():
-    """Chaque lundi, Claude cherche 3 societes prometteuses."""
+    """Chaque lundi, Claude cherche 3 societes prometteuses (observation uniquement)."""
     if not ANTHROPIC_API_KEY: return
     print("[DECOUVERTE] Recherche societes emergentes...")
     try:
@@ -854,10 +674,12 @@ def decouverte_societes_emergentes():
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         prompt = ("Recherche les 3 societes cotees les plus prometteuses cette semaine "
                   "dans : IA, defense, energie verte, semi-conducteurs, spatial, hydrogene. "
-                  "Preference europeenne. Reponds UNIQUEMENT en JSON : "
+                  "Preference europeenne. Exclure les societes deja en portefeuille : "
+                  "Orange Capgemini TotalEnergies BNP Airbus Safran Thales Dassault Schneider Microsoft SpaceX. "
+                  "Pour chaque societe, verifie que le ticker existe reellement. Reponds UNIQUEMENT en JSON : "
                   '[{{"nom":"X","ticker":"X.PA","secteur":"X","raison":"X","risque":"ELEVE"}}]')
         msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=400,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
@@ -872,6 +694,14 @@ def decouverte_societes_emergentes():
         nouvelles = []
         for s in societes[:3]:
             if not s.get("ticker") or s["ticker"] in SEUILS: continue
+            # v11 : verifier que le ticker repond sur yfinance avant de le proposer
+            try:
+                test = yf.Ticker(s["ticker"]).history(period="5d")
+                if test.empty:
+                    print("[DECOUVERTE] Ticker {} invalide — ignore".format(s["ticker"]))
+                    continue
+            except:
+                continue
             entry = {"date": date_str, "ticker": s["ticker"], "nom": s.get("nom",""),
                      "secteur": s.get("secteur",""), "raison": s.get("raison",""),
                      "risque": s.get("risque","ELEVE")}
@@ -885,51 +715,147 @@ def decouverte_societes_emergentes():
                 e = "🔴" if n["risque"]=="ELEVE" else "🟡" if n["risque"]=="MODERE" else "🟢"
                 lignes.append("{} <b>{}</b> ({}) - {} | {}".format(
                     e, n["nom"], n["ticker"], n["secteur"], n["raison"]))
-            lignes.append("<i>Observation uniquement</i>")
+            lignes.append("<i>Observation uniquement — aucun achat sans validation de Matthieu</i>")
             send_telegram("\n".join(lignes))
     except Exception as e:
         print("[DECOUVERTE] " + str(e))
 
 # ============================================================
-# DIALOGUE CONTEXTUEL v10.6
+# RECHERCHE WEB
+# ============================================================
+def recherche_web_active():
+    try:
+        resultats = []
+        noms_valeurs = [
+            ("thales","defense"), ("dassault","defense"), ("airbus","aeronautique"),
+            ("totalenergies","energie"), ("total energies","energie"),
+            ("microsoft","tech"), ("capgemini","tech"), ("safran","defense"),
+            ("orange","telecom"), ("bnp","banque"), ("schneider","energie"),
+            ("nvidia","tech"), ("lvmh","luxe"), ("hermes","luxe"),
+            ("spacex","spatial"), ("starlink","spatial"), ("spcx","spatial")
+        ]
+        themes_macro = [
+            ("iran","geopolitique Iran"), ("ormuz","detroit Ormuz"),
+            ("ukraine","conflit Ukraine"), ("trump","tensions Trump"),
+            ("petrole","marche petrole"), ("cac","bourse Paris"),
+            ("fed","politique monetaire"), ("bce","politique BCE")
+        ]
+        for feed_info in RSS_FEEDS:
+            try:
+                feed = feedparser.parse(feed_info["url"])
+                for entry in feed.entries[:20]:
+                    titre = entry.get("title", "").strip()
+                    if not titre or len(titre) < 10: continue
+                    tl = titre.lower()
+                    for nom, secteur in noms_valeurs:
+                        if nom in tl and titre not in resultats:
+                            impact = "🟢" if any(w in tl for w in
+                                ["hausse","monte","bond","profit","gain","record",
+                                 "accord","positif","croissance","commande"]) else "🔴"
+                            resultats.append("{} {}".format(impact, titre[:75]))
+                            break
+            except:
+                pass
+        if len(resultats) < 2:
+            for feed_info in RSS_FEEDS[:2]:
+                try:
+                    feed = feedparser.parse(feed_info["url"])
+                    for entry in feed.entries[:10]:
+                        titre = entry.get("title", "").strip()
+                        tl = titre.lower()
+                        for kw, label in themes_macro:
+                            if kw in tl and titre not in resultats:
+                                resultats.append("🌍 {}".format(titre[:75]))
+                                break
+                        if len(resultats) >= 3: break
+                except:
+                    pass
+        return "\n".join(resultats[:3]) if resultats else "Aucune actu specifique detectee"
+    except Exception as e:
+        print("[WEB RSS] " + str(e))
+        return ""
+
+
+def recherche_web_claude():
+    if not ANTHROPIC_API_KEY:
+        return ""
+    try:
+        attendre_rate_limit()
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
+        prompt = ("Donne-moi les 3 actualites financieres les plus importantes "
+                  "du {} pour un portefeuille : Thales Dassault Airbus TotalEnergies "
+                  "Microsoft Capgemini Orange BNP Safran SpaceX(SPCX). "
+                  "Reponds UNIQUEMENT avec 3 bullet points : "
+                  "• Societe : news → haussier/baissier").format(date_str)
+        msg = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=200,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": prompt}]
+        )
+        blocs_texte = [b.text for b in msg.content
+                       if hasattr(b, "text") and b.text and
+                       not b.text.startswith("Je vais") and
+                       not b.text.startswith("Maintenant") and
+                       not b.text.startswith("D apres")]
+        if blocs_texte:
+            return blocs_texte[-1].strip()[:300]
+        return ""
+    except Exception as e:
+        print("[WEB CLAUDE] " + str(e))
+        return ""
+
+# ============================================================
+# DIALOGUE CONTEXTUEL — prompt dynamique v11.0
 # ============================================================
 HISTORIQUE_CONVERSATION = []
-DERNIER_APPEL_CLAUDE = None  # Timestamp du dernier appel pour rate limiting
+DERNIER_APPEL_CLAUDE = None
 
 def attendre_rate_limit():
-    """Attend si necessaire pour respecter le rate limit Claude."""
     global DERNIER_APPEL_CLAUDE
     if DERNIER_APPEL_CLAUDE:
         elapsed = (datetime.now(PARIS_TZ) - DERNIER_APPEL_CLAUDE).total_seconds()
-        if elapsed < 3:  # Minimum 3s entre appels
+        if elapsed < 3:
             time.sleep(3 - elapsed)
     DERNIER_APPEL_CLAUDE = datetime.now(PARIS_TZ)
 
+
+def build_system_prompt():
+    """v11 : system prompt construit dynamiquement depuis SEUILS + cash reel."""
+    positions = []
+    for k, v in SEUILS.items():
+        if v.get("type") in ["CTO", "CTO-US"] and v.get("quantite"):
+            positions.append("{} {}@{}EUR".format(v["nom"], v["quantite"], v["px_revient"]))
+    return ("Agent financier de Matthieu (flat tax 30%, horizon 1 an, risque modere-eleve). "
+            "Positions : " + " | ".join(positions) +
+            ". Cash : {:.0f}EUR. ".format(get_cash()) +
+            "Regles : Orange NE PAS VENDRE avant juillet 2026. Microsoft et SPCX = ordre limite. "
+            "SPCX = position post-IPO, prise de profit >+40%, renfort <112EUR si RSI<45. "
+            "Reponds en max 80 mots, chiffres precis, jamais de fraction d action.")
+
+
 def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
-    """Repond avec memoire de conversation et contexte marche reduit."""
     if not ANTHROPIC_API_KEY: return "Cle manquante."
     global HISTORIQUE_CONVERSATION
     attendre_rate_limit()
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    # Contexte minimal — 6 positions max, pas de RSI pour economiser tokens
     ctx = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s.get("type") not in ["CTO","CTO-US"]: continue
         pv = calcul_pv(d["ticker"], d["cours"]) or 0
-        ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], d["cours"], pv))
+        cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
+        ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], cours_eur, pv))
     HISTORIQUE_CONVERSATION.append({"role": "user", "content":
-        "Marche: {}\nQ: {}".format(" | ".join(ctx[:6]), question_user)})
+        "Marche: {}\nQ: {}".format(" | ".join(ctx[:8]), question_user)})
     if len(HISTORIQUE_CONVERSATION) > 8:
         HISTORIQUE_CONVERSATION = HISTORIQUE_CONVERSATION[-8:]
-    system = ("Agent financier Matthieu. Thales 9@240.99EUR Dassault 3@317EUR "
-              "Orange 83@10.70EUR(dividende juin-NE PAS VENDRE) MSFT 1@325EUR "
-              "Cash 64EUR. Reponds en max 80 mots, chiffres precis.")
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=250,
-            system=system,
+            system=build_system_prompt(),
             messages=HISTORIQUE_CONVERSATION
         )
         rep = msg.content[0].text
@@ -970,12 +896,12 @@ def send_telegram(message):
 # ============================================================
 last_update_id = None
 bot_start_time = None
-messages_traites = set()  # Evite le double traitement
+messages_traites = set()
 
 def check_messages_telegram():
     global last_update_id, bot_start_time, messages_traites
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/getUpdates"
-    params = {"timeout": 0, "limit": 10}  # timeout=0 = non-bloquant
+    params = {"timeout": 0, "limit": 10}
     if last_update_id:
         params["offset"] = last_update_id
     try:
@@ -985,59 +911,90 @@ def check_messages_telegram():
         return
     for update in updates.get("result", []):
         update_id = update["update_id"]
-        # Marquer comme traite IMMEDIATEMENT pour eviter double traitement
         last_update_id = update_id + 1
-        # Skip si deja traite
         if update_id in messages_traites:
             continue
         messages_traites.add(update_id)
-        # Nettoyer le set si trop grand
         if len(messages_traites) > 100:
             messages_traites = set(list(messages_traites)[-50:])
 
         msg = update.get("message", {})
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
-
-        # Ignorer les messages avant le demarrage
         msg_date = msg.get("date", 0)
         if bot_start_time and msg_date < bot_start_time:
             print("[MSG] Ignore (avant demarrage) : " + text[:30])
             continue
-
         if not text or chat_id != str(TELEGRAM_CHAT_ID):
             continue
         print("[MSG] " + text)
 
-        if "backtest" in text.lower():
+        tl = text.lower().strip()
+
+        # v11 : mise a jour cash — "cash 881" ou "cash 881.67"
+        if tl.startswith("cash"):
+            parts = tl.split()
+            if len(parts) >= 2:
+                try:
+                    nouveau = set_cash(parts[1].replace(",", "."))
+                    send_telegram("💰 Cash mis a jour : <b>{:.2f}EUR</b>".format(nouveau))
+                except ValueError:
+                    send_telegram("Format : cash 881.67")
+            else:
+                send_telegram("💰 Cash actuel : <b>{:.2f}EUR</b>\nPour modifier : cash MONTANT".format(get_cash()))
+            continue
+
+        # v11 : statut SPCX dedie
+        if "spacex" in tl or "spcx" in tl:
+            d = calcul_indicateurs("SPCX")
+            if d:
+                s = SEUILS["SPCX"]
+                cours_eur = round(d["cours"]/EUR_USD_RATE, 2)
+                pv = calcul_pv("SPCX", d["cours"]) or 0
+                pv_pct = (cours_eur - s["px_revient"]) / s["px_revient"] * 100
+                alerte = check_spcx_ipo(d) or "Pas d alerte active."
+                send_telegram(
+                    "🛸 <b>SPCX</b> : {}USD / {}EUR ({:+.1f}%)\n"
+                    "Position : {} titre @ {}EUR | PV : {:+.0f}EUR ({:+.1f}%)\n"
+                    "RSI : {} | Renfort si <{}EUR + RSI<{} | Profit si >+{}%\n"
+                    "{}".format(
+                        d["cours"], cours_eur, d["variation"],
+                        s["quantite"], s["px_revient"], pv, pv_pct,
+                        d.get("rsi","?"), s["achat"], SPCX_RENFORT_RSI, SPCX_PROFIT_PCT,
+                        alerte))
+            else:
+                send_telegram("🛸 SPCX : donnees indisponibles (cotation recente, yfinance peut prendre quelques jours).")
+            continue
+
+        if "backtest" in tl:
             resultats = backtest_decisions()
             if not resultats:
                 send_telegram("Pas encore assez de decisions memorisees.")
-                return
+                continue
             lignes = ["📊 <b>Backtest de tes decisions :</b>"]
             for r in resultats:
                 lignes.append("{} {} | {} | {:+.1f}%".format(
                     r["verdict"], r["valeur"], r["date"], r["perf"]))
             send_telegram("\n".join(lignes))
-            return
+            continue
 
-        if "geo" in text.lower() or "geopolitique" in text.lower():
+        if "geo" in tl or "geopolitique" in tl:
             news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
             msg_geo = formatter_geo_telegram(geo_scores, geo_themes)
             send_telegram("🌍 <b>Contexte geopolitique actuel :</b>\n" + msg_geo)
-            return
+            continue
 
-        if text.lower().strip() in ["analyse", "analyze", "scan", "status"]:
+        if tl in ["analyse", "analyze", "scan", "status"]:
             analyse_forcee()
-            return
+            continue
 
-        if "ia" == text.lower().strip() or "actu ia" in text.lower():
+        if "ia" == tl or "actu ia" in tl:
             news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
             ia_themes = [t for t in geo_themes if t in [
                 "ia", "intelligence artificielle", "openai", "anthropic", "gemini",
-                "gpt", "llm", "nvidia", "palantir", "cloud", "agent ia", "cyber"]]
+                "gpt", "llm", "nvidia", "palantir", "cloud", "agent ia", "cyber", "xai"]]
             ia_impacts = {k: v for k, v in geo_scores.items()
-                          if k in ["MSFT", "NVDA", "PLTR", "GOOGL", "CAP.PA", "SU.PA"]}
+                          if k in ["MSFT", "NVDA", "PLTR", "GOOGL", "CAP.PA", "SU.PA", "SPCX"]}
             lignes_ia = ["🤖 <b>Actu IA du jour :</b>"]
             if ia_themes:
                 lignes_ia.append("Themes : " + ", ".join(ia_themes))
@@ -1046,24 +1003,24 @@ def check_messages_telegram():
                 emoji_ia = "🟢" if score > 0 else "🔴"
                 lignes_ia.append("  {} {} {:+d}pts".format(emoji_ia, nom, score))
             ia_news = [n for n in news_m if any(kw in n.lower() for kw in
-                       ["ai", "openai", "anthropic", "palantir", "nvidia", "gemini", "google"])]
+                       ["ai", "openai", "anthropic", "palantir", "nvidia", "gemini", "google", "xai"])]
             if ia_news:
                 lignes_ia.append("\nNews :")
                 for n in ia_news[:3]:
                     lignes_ia.append("• " + n[:80])
             send_telegram("\n".join(lignes_ia))
-            return
+            continue
 
-        if "capitol" in text.lower() or "congress" in text.lower() or "elus" in text.lower():
+        if "capitol" in tl or "congress" in tl or "elus" in tl:
             trades = get_capitol_trades()
             send_telegram(formatter_capitol_telegram(trades))
-            return
+            continue
 
-        if "emergent" in text.lower() or "decouverte" in text.lower() or "nouvelles societes" in text.lower():
+        if "emergent" in tl or "decouverte" in tl or "nouvelles societes" in tl:
             decouverte_societes_emergentes()
-            return
+            continue
 
-        if "stop" in text.lower() and "loss" in text.lower():
+        if "stop" in tl and "loss" in tl:
             donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
             donnees_ok = [d for d in donnees if d]
             sl = check_stop_loss(donnees_ok)
@@ -1075,15 +1032,13 @@ def check_messages_telegram():
                 send_telegram("\n".join(lignes))
             else:
                 send_telegram("✅ Aucune position en stop-loss (seuil -15%).")
-            return
+            continue
 
-        # Commande patch GitHub
-        if text.lower().startswith("patch:"):
+        if tl.startswith("patch:"):
             if not GITHUB_TOKEN:
                 send_telegram("❌ GITHUB_TOKEN non configure dans Railway.")
-                return
+                continue
             send_telegram("🔧 Patch recu — verification syntaxe en cours...")
-            # Format : "patch: description | ancien_code ||| nouveau_code"
             try:
                 contenu = text[6:].strip()
                 if "|||" in contenu:
@@ -1096,19 +1051,16 @@ def check_messages_telegram():
                     send_telegram("Format : patch: description | ancien_code ||| nouveau_code")
             except Exception as e:
                 send_telegram("❌ Erreur patch : " + str(e)[:100])
-            return
+            continue
 
-        # Commande mise a jour portefeuille
-        # Format : "achat THALES 1 223" ou "vente MSFT 1 365"
-        text_parts = text.lower().split()
+        text_parts = tl.split()
         if text_parts and text_parts[0] in ["achat", "vente", "acheté", "vendu"]:
             if len(text_parts) >= 4:
                 action_str = "achat" if text_parts[0] in ["achat","acheté"] else "vente"
                 nom_cherche = text_parts[1].upper()
-                # Trouver le ticker correspondant
                 ticker_trouve = None
                 for k, v in SEUILS.items():
-                    if nom_cherche in v["nom"].upper() or nom_cherche == k.replace(".PA","").replace("=F",""):
+                    if nom_cherche in v["nom"].upper() or nom_cherche == k.replace(".PA","").replace("=F","").replace(".AS",""):
                         ticker_trouve = k
                         break
                 if ticker_trouve:
@@ -1121,10 +1073,9 @@ def check_messages_telegram():
                         send_telegram("Format : achat/vente NOM QTE PRIX\nEx: achat THALES 1 223")
                 else:
                     send_telegram("❌ Valeur '{}' non trouvee dans le portefeuille.".format(nom_cherche))
-                return
+                continue
 
-        # Historique des patches
-        if "patch" in text.lower() and "histori" in text.lower():
+        if "patch" in tl and "histori" in tl:
             m = load_memoire()
             patches = m.get("historique_patches", [])
             if not patches:
@@ -1136,21 +1087,18 @@ def check_messages_telegram():
                     lignes.append("{} {} — {}".format(
                         emoji, p.get("date","?"), p.get("description","?")))
                 send_telegram("\n".join(lignes))
-            return
+            continue
 
         # Dialogue contextuel — toute autre question
         donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
         donnees_ok = [d for d in donnees if d]
         news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
-        capitol_trades = get_capitol_trades()
-        sentiment = get_sentiment(donnees_ok)
-        # RSS rapide par defaut, Claude web search uniquement sur demande actu/news
-        if any(kw in text.lower() for kw in ["actu", "news", "que se passe"]):
+        if any(kw in tl for kw in ["actu", "news", "que se passe"]):
             web_actu = recherche_web_claude()
         else:
             web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-        send_telegram("🤖 <b>Agent v10.7 :</b>\n" + reponse)
+        send_telegram("🤖 <b>Agent v11.0 :</b>\n" + reponse)
 
 # ============================================================
 # GEOPOLITIQUE — Extraction et scoring
@@ -1159,7 +1107,6 @@ def get_news_et_geo():
     news_p, news_m = [], []
     geo_scores = {}
     geo_themes = []
-
     for feed_info in RSS_FEEDS:
         try:
             feed = feedparser.parse(feed_info["url"])
@@ -1167,12 +1114,10 @@ def get_news_et_geo():
                 title   = entry.get("title", "")
                 summary = entry.get("summary", "")
                 texte   = (title + " " + summary).lower()
-
                 if any(kw in texte for kw in KEYWORDS_PORTEFEUILLE) and title not in news_p:
                     news_p.append(title)
                 elif any(kw in texte for kw in KEYWORDS_MACRO) and title not in news_m:
                     news_m.append(title)
-
                 for theme, impacts in GEO_IMPACT.items():
                     if theme in texte:
                         if theme not in geo_themes:
@@ -1181,10 +1126,8 @@ def get_news_et_geo():
                             geo_scores[ticker] = geo_scores.get(ticker, 0) + score
         except:
             pass
-
     for ticker in geo_scores:
         geo_scores[ticker] = max(-30, min(30, geo_scores[ticker]))
-
     return news_p[:4], news_m[:4], geo_scores, geo_themes[:8]
 
 
@@ -1206,8 +1149,20 @@ def formatter_geo_telegram(geo_scores, geo_themes):
                 lignes.append("  🔴 {} : {} pts (defavorable)".format(nom, score))
     return "\n".join(lignes)
 
+
+def formatter_capitol_telegram(trades):
+    if not trades:
+        return "Aucun trade recent detecte sur tes valeurs."
+    lignes = ["🏛 <b>Derniers trades des elus US :</b>"]
+    for t in trades:
+        emoji = "🟢" if any(w in t["action"].lower() for w in ["purchase","buy","bought"]) else "🔴"
+        lignes.append("{} {} ({}) — {} {} {}".format(
+            emoji, t["politician"], t["party"],
+            t["action"], t["ticker"], t["size"]))
+    return "\n".join(lignes)
+
 # ============================================================
-# INDICATEURS TECHNIQUES v10.1
+# INDICATEURS TECHNIQUES
 # ============================================================
 def ema(closes, periode):
     if len(closes) < periode:
@@ -1222,42 +1177,44 @@ def calcul_indicateurs(ticker):
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="6mo", interval="1d")
-        if len(hist) < 26:
+        # v11 : tolerance IPO recente — moins de 26 jours de cotation acceptable
+        s_cfg = SEUILS.get(ticker, {})
+        min_jours = 5 if s_cfg.get("ipo") else 26
+        if len(hist) < min_jours:
             return None
 
         closes  = hist["Close"].values.tolist()
         volumes = hist["Volume"].values.tolist()
-
-        # Fix nan : filtrer les valeurs invalides (detachement dividende, suspension)
         closes  = [x for x in closes  if x is not None and x == x and x > 0]
         volumes = [x for x in volumes if x is not None and x == x]
-        if len(closes) < 26:
+        if len(closes) < min_jours:
             return None
 
         c = round(float(closes[-1]), 2)
         h = round(float(closes[-2]), 2) if len(closes) > 1 else c
         variation = round((c - h) / h * 100, 2)
 
-        # RSI 14
+        # RSI 14 (ou sur la duree dispo si IPO recente)
         deltas    = [closes[i+1] - closes[i] for i in range(len(closes)-1)]
         gains     = [d if d > 0 else 0 for d in deltas]
         pertes    = [-d if d < 0 else 0 for d in deltas]
-        avg_gain  = sum(gains[-14:])  / 14 if len(gains)  >= 14 else sum(gains)  / max(len(gains),1)
-        avg_perte = sum(pertes[-14:]) / 14 if len(pertes) >= 14 else sum(pertes) / max(len(pertes),1)
-        rsi = round(100 - (100 / (1 + avg_gain / avg_perte)) if avg_perte > 0 else 100, 1)
+        rsi = None
+        if deltas:
+            avg_gain  = sum(gains[-14:])  / 14 if len(gains)  >= 14 else sum(gains)  / max(len(gains),1)
+            avg_perte = sum(pertes[-14:]) / 14 if len(pertes) >= 14 else sum(pertes) / max(len(pertes),1)
+            rsi = round(100 - (100 / (1 + avg_gain / avg_perte)) if avg_perte > 0 else 100, 1)
 
-        if rsi < 20:   rsi_niveau = "CRITIQUE"
-        elif rsi < 30: rsi_niveau = "SURVENDU"
-        elif rsi > 80: rsi_niveau = "EXTREME_HAUT"
-        elif rsi > 70: rsi_niveau = "SURCHETE"
-        else:          rsi_niveau = "NEUTRE"
+        if rsi is None: rsi_niveau = "INCONNU"
+        elif rsi < 20:  rsi_niveau = "CRITIQUE"
+        elif rsi < 30:  rsi_niveau = "SURVENDU"
+        elif rsi > 80:  rsi_niveau = "EXTREME_HAUT"
+        elif rsi > 70:  rsi_niveau = "SURCHETE"
+        else:           rsi_niveau = "NEUTRE"
 
-        # Moyennes mobiles
         mm20  = round(sum(closes[-20:])  / 20,  2) if len(closes) >= 20  else None
         mm50  = round(sum(closes[-50:])  / 50,  2) if len(closes) >= 50  else None
         mm200 = round(sum(closes[-200:]) / 200, 2) if len(closes) >= 200 else None
 
-        # MACD 12/26/9
         ema12 = ema(closes, 12)
         ema26 = ema(closes, 26)
         macd_line   = round(ema12 - ema26, 4) if ema12 and ema26 else None
@@ -1280,7 +1237,6 @@ def calcul_indicateurs(ticker):
                     if prev_diff < 0 and curr_diff > 0: macd_croise = "HAUSSIER"
                     elif prev_diff > 0 and curr_diff < 0: macd_croise = "BAISSIER"
 
-        # Bollinger 20j
         bb_haut = bb_bas = bb_signal = None
         if len(closes) >= 20:
             mm20_val = sum(closes[-20:]) / 20
@@ -1294,27 +1250,25 @@ def calcul_indicateurs(ticker):
                 pct = round((c - bb_bas) / (bb_haut - bb_bas) * 100, 0) if bb_haut != bb_bas else 50
                 bb_signal = "{}% bande".format(int(pct))
 
-        # Volume relatif
         vol_moy20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else None
         vol_rec5  = sum(volumes[-5:])  / 5  if len(volumes) >= 5  else None
         vol_ratio = round(vol_rec5 / vol_moy20, 2) if vol_moy20 and vol_rec5 and vol_moy20 > 0 else 1.0
         vol_signal = "FORT" if vol_ratio > 1.5 else "FAIBLE" if vol_ratio < 0.7 else "NORMAL"
 
-        # Tendance 1 mois
         t1m = round((closes[-1] - closes[-22]) / closes[-22] * 100, 1) if len(closes) >= 22 else None
 
-        # Score de confiance (RSI + MACD + Bollinger + Volume)
         score_achat, score_vente = 0, 0
         signaux_achat, signaux_vente = [], []
 
-        if rsi < 20:
-            score_achat += 45; signaux_achat.append("RSI CRITIQUE ({}) !!".format(rsi))
-        elif rsi < 30:
-            score_achat += 35; signaux_achat.append("RSI survendu ({})".format(rsi))
-        elif rsi > 80:
-            score_vente += 45; signaux_vente.append("RSI EXTREME ({}) !!".format(rsi))
-        elif rsi > 70:
-            score_vente += 35; signaux_vente.append("RSI surchete ({})".format(rsi))
+        if rsi is not None:
+            if rsi < 20:
+                score_achat += 45; signaux_achat.append("RSI CRITIQUE ({}) !!".format(rsi))
+            elif rsi < 30:
+                score_achat += 35; signaux_achat.append("RSI survendu ({})".format(rsi))
+            elif rsi > 80:
+                score_vente += 45; signaux_vente.append("RSI EXTREME ({}) !!".format(rsi))
+            elif rsi > 70:
+                score_vente += 35; signaux_vente.append("RSI surchete ({})".format(rsi))
 
         if macd_croise == "HAUSSIER":
             score_achat += 30; signaux_achat.append("MACD croisement haussier")
@@ -1381,8 +1335,9 @@ def calcul_indicateurs(ticker):
             h = round(float(hist["Close"].iloc[-2]), 2) if len(hist) > 1 else c
             return {"ticker": ticker, "cours": c, "hier": h,
                     "variation": round((c-h)/h*100, 2),
-                    "rsi": None, "rsi_niveau": "INCONNU", "mm50": None, "mm200": None,
-                    "macd_croise": "INCONNU", "bb_signal": None,
+                    "rsi": None, "rsi_niveau": "INCONNU", "mm20": None, "mm50": None, "mm200": None,
+                    "macd_line": None, "macd_signal": None, "macd_hist": None,
+                    "macd_croise": "INCONNU", "bb_haut": None, "bb_bas": None, "bb_signal": None,
                     "vol_ratio": 1.0, "vol_signal": "NORMAL",
                     "tendance_1m": None, "signal_tech": "INCONNU",
                     "score_achat": 0, "score_vente": 0,
@@ -1448,14 +1403,21 @@ def backtest_decisions():
         px = d.get("prix", 0)
         if px and data["cours"]:
             perf = round((data["cours"] - px) / px * 100, 1)
+            # v11 : sens du verdict selon l action (une VENTE est bonne si le cours a baisse apres)
+            action = d.get("action", "ACHAT").upper()
+            if "VENTE" in action:
+                bon = perf < 0
+            else:
+                bon = perf > 0
             resultats.append({
-                "valeur": d["valeur"], "date": d["date"],
-                "perf": perf, "verdict": "✅" if perf > 0 else "❌"
+                "valeur": d["valeur"], "date": d["date"], "action": action,
+                "perf": perf, "verdict": "✅" if bon else "❌",
+                "bon": bon
             })
     return resultats
 
 # ============================================================
-# SENTIMENT
+# SENTIMENT / EUR-USD / PV
 # ============================================================
 def get_sentiment(donnees):
     types = ["CTO", "CTO-US", "WATCH", "WATCH-US"]
@@ -1467,9 +1429,6 @@ def get_sentiment(donnees):
     if h/total <= 0.35: return "BAISSIER"
     return "NEUTRE"
 
-# ============================================================
-# EUR/USD
-# ============================================================
 def get_eur_usd():
     try:
         t = yf.Ticker("EURUSD=X")
@@ -1494,15 +1453,14 @@ def pv_totale(donnees):
     total = 0
     for d in donnees:
         if not d: continue
-        # Skip si cours invalide (nan, 0)
         if not d.get("cours") or d["cours"] != d["cours"]: continue
         pv = calcul_pv(d["ticker"], d["cours"])
-        if pv is not None and pv == pv:  # Check nan
+        if pv is not None and pv == pv:
             total += pv
     return round(total, 2)
 
 # ============================================================
-# ANALYSE CLAUDE v10.1
+# ANALYSE CLAUDE — prompt v11.0 (cash dynamique, SPCX, Capgemini)
 # ============================================================
 def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_themes,
                    capitol_trades=None, question_user=None):
@@ -1511,98 +1469,35 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     m = load_memoire()
-    decisions_str = "\n".join([
-        "- {}: {} {} a {}EUR".format(d["date"], d["action"], d["valeur"], d["prix"])
-        for d in m.get("decisions", [])[-5:]
-    ]) or "Aucune"
-
-    lignes = []
-    dividende_alertes = []
-
-    for d in donnees:
-        if not d: continue
-        s = SEUILS.get(d["ticker"], {})
-        if s["type"] not in ["CTO", "CTO-US", "WATCH", "WATCH-US"]: continue
-
-        pv = calcul_pv(d["ticker"], d["cours"])
-        corr = CORRELATIONS.get(d["ticker"], "")
-
-        # Conversion USD→EUR obligatoire pour actions US
-        cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if s["type"] == "CTO-US" else d["cours"]
-        devise_note = " [USD→EUR converti, ordre limite obligatoire]" if s["type"] == "CTO-US" else ""
-
-        # Score combiné : tech + géo + capitol
-        geo_bonus     = geo_scores.get(d["ticker"], 0)
-        cap_score, cap_resume = score_capitol(d["ticker"], capitol_trades or [])
-        score_achat_total = min(130, d.get("score_achat", 0) + max(0, geo_bonus) + max(0, cap_score))
-        score_vente_total  = min(130, d.get("score_vente", 0) + max(0, -geo_bonus) + max(0, -cap_score))
-
-        score_str = ""
-        if score_achat_total >= 35:
-            score_str = " SCORE:{} (tech{}+geo{}+capitol{})".format(
-                score_achat_total, d.get("score_achat",0), max(0,geo_bonus), max(0,cap_score))
-        elif score_vente_total >= 35:
-            score_str = " SCORE_VENTE:{} (geo{}+capitol{})".format(
-                score_vente_total, max(0,-geo_bonus), max(0,-cap_score))
-
-        # Alerte dividende
-        div_alerte = protection_dividende(d["ticker"])
-        if div_alerte:
-            dividende_alertes.append(div_alerte)
-
-        cap_str = ""
-        if cap_resume:
-            cap_str = " | CAPITOL:" + "; ".join(cap_resume[:2])
-
-        lignes.append("- {} {}EUR{} ({}{}%) RSI:{}/{} MACD:{} BB:{} Vol:{} T1M:{}% [{}]{}{}{} {}".format(
-            s.get("nom",""), cours_eur, devise_note,
-            "+" if d["variation"]>=0 else "", d["variation"],
-            d.get("rsi","?"), d.get("rsi_niveau","?"),
-            d.get("macd_croise","?"), d.get("bb_signal","?"),
-            d.get("vol_signal","?"), d.get("tendance_1m","?"),
-            d.get("signal_tech",""),
-            " PV:{:+.0f}EUR".format(pv) if pv is not None else "",
-            score_str, cap_str,
-            "| "+corr if corr else ""
-        ))
+    cash = get_cash()
 
     macro = []
     for d in donnees:
         if not d: continue
         s = SEUILS.get(d["ticker"], {})
         if s["type"] in ["INDEX", "MATIERES"]:
-            macro.append("{}: {} ({}{}%)".format(
+            suspect = " [DONNEE SUSPECTE]" if donnee_suspecte(d) else ""
+            macro.append("{}: {} ({}{}%){}".format(
                 s["nom"], d["cours"],
-                "+" if d["variation"]>=0 else "", d["variation"]))
+                "+" if d["variation"]>=0 else "", d["variation"], suspect))
 
     geo_str = ""
     if geo_themes:
-        geo_str = "\nGEOPOLITIQUE: " + ", ".join(geo_themes)
+        geo_str = "GEOPOLITIQUE: " + ", ".join(geo_themes)
     if geo_scores:
         impacts = []
         for ticker, score in sorted(geo_scores.items(), key=lambda x: abs(x[1]), reverse=True)[:5]:
             if ticker in SEUILS:
                 impacts.append("{}: {:+d}pts".format(SEUILS[ticker]["nom"], score))
         if impacts:
-            geo_str += "\nIMPACT GEO: " + " | ".join(impacts)
+            geo_str += " | IMPACT: " + " | ".join(impacts)
 
-    capitol_str = ""
-    if capitol_trades:
-        capitol_str = "\nCAPITOL TRADES (elus US): " + " | ".join([
-            "{} {} {}".format(t["politician"], t["action"], t["ticker"])
-            for t in capitol_trades[:5]
-        ])
+    div_jours = ""
+    for tick in DIVIDENDES:
+        warn = protection_dividende(tick)
+        if warn:
+            div_jours += SEUILS.get(tick, {}).get("nom", tick) + " : " + warn + " | "
 
-    div_str = ""
-    if dividende_alertes:
-        div_str = "\nDIVIDENDES: " + " | ".join(dividende_alertes)
-
-    question_str = "\nQUESTION: " + question_user if question_user else ""
-
-    # Calculer PV totale pour le prompt
-    pv_tot = pv_totale(donnees)
-
-    # Construire positions courtes pour le prompt
     positions = []
     for d in donnees:
         if not d: continue
@@ -1610,30 +1505,21 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
         if s.get("type") not in ["CTO","CTO-US"]: continue
         pv = calcul_pv(d["ticker"], d["cours"]) or 0
         rsi = d.get("rsi","?")
+        cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         positions.append("{} {}EUR RSI:{} PV:{:+.0f}EUR".format(
-            s.get("nom","?"), d["cours"], rsi, pv))
+            s.get("nom","?"), cours_eur, rsi, pv))
 
-    # Contexte dividende Orange
-    div_jours = ""
-    try:
-        from datetime import date as dt_date
-        det = datetime.strptime("2026-06-10", "%Y-%m-%d").date()
-        jours = (det - dt_date.today()).days
-        if jours > 0:
-            div_jours = "Dividende Orange dans {}j (~100EUR nets) — garder cash".format(jours)
-    except:
-        pass
+    pv_tot = pv_totale(donnees)
 
-    # Signaux actifs pour contexte
     signaux_str = ""
     if question_user and question_user.strip():
         signaux_str = "\nQUESTION : " + question_user[:150]
 
-    prompt = """Tu es l agent financier personnel de Matthieu. Raisonne EXACTEMENT comme un conseiller humain rigoureux.
+    prompt = """Tu es l agent financier personnel de Matthieu. Raisonne comme un conseiller humain rigoureux : prudent, chiffre, jamais survendeur.
 
-PORTEFEUILLE (flat tax 30%, horizon 1 an) :
+PORTEFEUILLE (flat tax 30%, horizon 1 an, risque modere-eleve) :
 {positions}
-Cash : ~64EUR | PV totale : {pv:+.0f}EUR
+Cash : ~{cash:.0f}EUR | PV totale : {pv:+.0f}EUR
 {div}
 
 MARCHE {moment} {date} :
@@ -1644,42 +1530,39 @@ SENTIMENT : {sentiment}
 {signaux}
 
 REGLES ABSOLUES INVIOLABLES :
-1. JAMAIS proposer d achat si cash (~64EUR) < prix de l action. C est mathematiquement impossible.
-2. JAMAIS proposer 0.5 action ou fraction d action. Uniquement des entiers : 1, 2 ou 3.
-3. JAMAIS proposer achat si RSI > 65. RSI > 70 = zone de SURACHAT (pas survente). RSI < 30 = zone de SURVENTE.
+1. JAMAIS proposer d achat si cash ({cash:.0f}EUR) < prix de l action.
+2. JAMAIS de fraction d action. Uniquement des entiers : 1, 2 ou 3.
+3. JAMAIS proposer achat si RSI > 65. RSI > 70 = SURACHAT. RSI < 30 = SURVENTE.
 4. JAMAIS vendre Orange avant juillet 2026.
-5. Prix toujours en EUR. Ordre limite pour Microsoft.
-6. Si cash < 200EUR : aucun achat possible sauf si prix action < cash disponible.
-7. Score geo seul (sans RSI survendu < 40) = signal invalide pour achat.
+5. Prix toujours en EUR. Ordre limite obligatoire pour Microsoft et SPCX.
+6. Score geo seul (sans RSI < 40) = signal invalide pour achat.
+7. Une donnee marquee [DONNEE SUSPECTE] ne justifie AUCUN signal.
 
-TERMINOLOGIE : RSI > 70 = SURACHAT (cours trop haut, risque correction). RSI < 30 = SURVENTE (cours trop bas, opportunite achat). Ne jamais confondre.
+POSITIONS SPECIALES :
+- SPCX (SpaceX) : 1 titre @120.75EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
+- Capgemini : -26% vs PRU 131EUR, en stop-loss depuis des semaines. Si tu en parles, pose la question de fond : couper la perte ou conviction IA long terme ? Ne pas laisser trainer sans decision.
 
-REGLES DE RAISONNEMENT (applique dans cet ordre) :
-1. Verifier les CONTRADICTIONS avant tout signal :
-   - Safran/Thales/Dassault RSI > 65 = NE PAS acheter, envisager vente partielle si RSI > 75
-   - TotalEnergies = acheter SEULEMENT si WTI monte ET RSI < 40
-   - Score geo seul sans RSI favorable = signal invalide
-   - Vente Safran RSI 70 score 55 = signal FAIBLE, ne pas vendre si PV positive et contexte geo favorable
-2. Cash vs dividende : si dividende dans moins de 20j, garder cash pour Dassault
-3. Flat tax : calculer impot avant de suggerer une vente (PV x 30%)
-4. Ne JAMAIS vendre Orange avant juillet 2026
-5. Signal fort = score > 65 ET RSI coherent ET sous-jacent confirme
+REGLES DE RAISONNEMENT (dans cet ordre) :
+1. Contradictions d abord : defense RSI>65 = pas d achat | TotalEnergies = achat seulement si WTI monte ET RSI<40 | geo seul = invalide
+2. Flat tax : calculer l impot (PV x 30%) avant de suggerer une vente
+3. Signal fort = score > 65 ET RSI coherent ET sous-jacent confirme
 
-REPONDS EN 200 MOTS MAX avec cette structure :
-[MARCHE] Contexte du jour en 1 phrase (inclure contradiction si detectee)
-[PORTEFEUILLE] 3-4 lignes : ce qui va bien, ce qui souffre, PV totale
+REPONDS EN 200 MOTS MAX :
+[MARCHE] 1 phrase (inclure contradiction si detectee)
+[PORTEFEUILLE] 3-4 lignes : ce qui va, ce qui souffre, PV totale
 [ACTION] UNE decision claire :
-  → Si achat : ACHAT | VALEUR | QTE | PRIX EUR | type ordre | raison | cash restant
-  → Si vente justifiee : VENTE | VALEUR | QTE | PRIX EUR | PV nette apres flat tax
-  → Si rien : "Rien a faire — [raison precise]. Prochain declencheur : [niveau ou date exacte]"
-[RISQUE] 1 phrase sur le risque principal""".format(
-        positions="\n".join(positions[:10]),
+  → Achat : ACHAT | VALEUR | QTE | PRIX EUR | type ordre | raison | cash restant
+  → Vente : VENTE | VALEUR | QTE | PRIX EUR | PV nette apres flat tax
+  → Rien : "Rien a faire — [raison]. Prochain declencheur : [niveau ou date]"
+[RISQUE] 1 phrase""".format(
+        positions="\n".join(positions[:12]),
+        cash=cash,
         pv=pv_tot,
-        div=div_jours,
+        div=div_jours[:200] if div_jours else "Pas d alerte dividende",
         moment=moment.upper(),
         date=datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M"),
         macro=" | ".join(macro[:4]),
-        geo=geo_str[:150] if geo_str else "RAS",
+        geo=geo_str[:200] if geo_str else "RAS",
         news=(" | ".join(news_p[:2] + news_m[:1]))[:150] if (news_p or news_m) else "RAS",
         sentiment=sentiment,
         signaux=signaux_str
@@ -1688,46 +1571,41 @@ REPONDS EN 200 MOTS MAX avec cette structure :
     try:
         attendre_rate_limit()
         msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=450,
             messages=[{"role": "user", "content": prompt}])
         resultat = msg.content[0].text.strip() if msg.content else ""
         if resultat and len(resultat) > 20:
             return resultat
-        # Retour vide de Claude — generer fallback minimal
         print("[CLAUDE] Reponse vide ou trop courte")
-        return None  # Signale explicitement l echec au caller
+        return None
     except Exception as e:
         err = str(e)
         print("[CLAUDE] Erreur : " + err[:100])
-        return None  # Toujours None en cas d erreur, jamais chaine vide
+        return None
 
 # ============================================================
-# ANALYSE COMPLETE v10.1
+# ANALYSE COMPLETE v11.0
 # ============================================================
-def analyse_complete(moment="scan", force=False):
+def analyse_complete(moment="scan", force=False, session="EU"):
     """
-    v10.5 : N'envoie un message QUE si un signal d'action est detecte
-    ou si force=True (commande manuelle 'analyse').
-    Pas d'envoi le weekend. Pas d'envoi si aucun signal.
+    session : "EU" = scan complet Euronext | "US" = scan reduit (SPCX, MSFT, crypto, watch US)
     """
     now_paris = datetime.now(PARIS_TZ)
-
-    # Pas d'envoi le weekend sauf si force
     if now_paris.weekday() >= 5 and not force:
         print("[SCAN] Weekend — silence")
         return
-
-    # Pas d'envoi hors heures de marche sauf si force
-    if not marche_ouvert() and not force:
-        print("[SCAN] Marche ferme ({}) — silence".format(
-            now_paris.strftime("%H:%M")))
-        return
-
     now = now_paris.strftime("%d/%m/%Y %H:%M")
-    print("\n[" + now + "] Scan signaux...")
+    print("\n[" + now + "] Scan signaux ({})...".format(session))
 
-    donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
+    # v11 : en session US, ne scanner que les tickers pertinents (donnees EU figees)
+    if session == "US" and not force:
+        tickers_scan = [t for t, v in SEUILS.items()
+                        if v.get("type") in ["CTO-US", "WATCH-US", "CRYPTO"] or t in ["GC=F", "CL=F"]]
+    else:
+        tickers_scan = list(SEUILS.keys())
+
+    donnees = [calcul_indicateurs(t) for t in tickers_scan]
     donnees_ok = [d for d in donnees if d]
 
     if not donnees_ok:
@@ -1742,16 +1620,21 @@ def analyse_complete(moment="scan", force=False):
     m_mem = load_memoire()
     params = m_mem.get("params", {})
     seuil_score = params.get("seuil_score", 50)
-    cash_dispo = params.get("cash_dispo", 240)  # Cash mis a jour par l utilisateur
+    cash_dispo = get_cash()
 
-    # Recherche web active (uniquement en mode force pour economiser les tokens)
-    web_actu = recherche_web_active()  # RSS rapide toujours, sans tokens Claude
-
-    # Verifier stop-loss
+    web_actu = recherche_web_active()
     stop_loss_alertes = check_stop_loss(donnees_ok)
     stop_loss_crypto  = check_stop_loss_crypto(donnees_ok)
 
-    # ── Detecter les signaux d'action ───────────────────────
+    # v11 : alertes SPCX dediees (2 phases)
+    spcx_alertes = []
+    for d in donnees_ok:
+        if d["ticker"] == "SPCX":
+            a = check_spcx_ipo(d)
+            if a:
+                spcx_alertes.append(a)
+
+    # ── Signaux ───────────────────────────────────────────────
     signaux_forts = []
     alertes_seuil = []
 
@@ -1759,12 +1642,18 @@ def analyse_complete(moment="scan", force=False):
         s = SEUILS.get(d["ticker"], {})
         if s["type"] not in ["CTO", "CTO-US"]: continue
 
+        # v11 : sanity check — donnee aberrante = aucun signal
+        if donnee_suspecte(d):
+            print("[SANITY] {} : donnee suspecte (var {:+.1f}%) — signal ignore".format(
+                d["ticker"], d.get("variation", 0)))
+            alertes_seuil.append("⚠️ {} : donnee de marche suspecte, signal ignore".format(s["nom"]))
+            continue
+
         geo_bonus  = geo_scores.get(d["ticker"], 0)
         cap_sc, _  = score_capitol(d["ticker"], capitol_trades)
         score_a = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
         score_v = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
 
-        # Signal achat fort
         if score_a >= seuil_score:
             nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
@@ -1775,7 +1664,6 @@ def analyse_complete(moment="scan", force=False):
                 "variation": d["variation"],
                 "nb_actions": nb_actions
             })
-        # Signal vente fort
         elif score_v >= seuil_score:
             signaux_forts.append({
                 "ticker": d["ticker"], "nom": s["nom"],
@@ -1785,7 +1673,6 @@ def analyse_complete(moment="scan", force=False):
                 "variation": d["variation"],
                 "nb_actions": s.get("quantite", 1)
             })
-        # RSI critique toujours signale
         elif d.get("rsi_niveau") == "CRITIQUE":
             nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
@@ -1797,17 +1684,12 @@ def analyse_complete(moment="scan", force=False):
                 "nb_actions": nb_actions
             })
 
-        # Alertes dividende
         div_warn = protection_dividende(d["ticker"])
         if div_warn and "NE PAS VENDRE" in div_warn:
             alertes_seuil.append("💰 " + s["nom"] + " : " + div_warn)
 
-    # ── Filtrer les signaux contradictoires AVANT envoi ─────
-    # Recuperer variation WTI et or pour verifications
-    wti_variation  = next((d["variation"] for d in donnees_ok
-                           if d["ticker"] == "CL=F"), None)
-    or_variation   = next((d["variation"] for d in donnees_ok
-                           if d["ticker"] == "GC=F"), None)
+    # ── Filtres anti-contradiction ────────────────────────────
+    wti_variation  = next((d["variation"] for d in donnees_ok if d["ticker"] == "CL=F"), None)
 
     signaux_valides = []
     signaux_rejetes = []
@@ -1815,91 +1697,71 @@ def analyse_complete(moment="scan", force=False):
     for sig in signaux_forts:
         ticker = sig["ticker"]
         raison_rejet = None
+        rsi = sig.get("rsi")
 
-        # Capgemini : invalide si RSI > 45 (pas assez survendu)
         if ticker == "CAP.PA" and sig["type"] == "ACHAT":
-            rsi = sig.get("rsi")
             if rsi and rsi > 45:
-                raison_rejet = "RSI Capgemini {:.1f} trop eleve — score geo seul insuffisant".format(rsi)
-
-        # Schneider : invalide si RSI > 50 (neutre, pas survendu)
+                raison_rejet = "RSI Capgemini {:.1f} trop eleve — geo seul insuffisant".format(rsi)
         if ticker == "SU.PA" and sig["type"] == "ACHAT":
-            rsi = sig.get("rsi")
             if rsi and rsi > 50:
-                raison_rejet = "RSI Schneider {:.1f} neutre (>50) — pas de zone d achat".format(rsi)
-
-        # Actions US (Microsoft) : invalide si RSI > 65
-        if ticker == "MSFT" and sig["type"] == "ACHAT":
-            rsi = sig.get("rsi")
+                raison_rejet = "RSI Schneider {:.1f} neutre (>50)".format(rsi)
+        if ticker in ["MSFT", "SPCX"] and sig["type"] == "ACHAT":
             if rsi and rsi > 65:
-                raison_rejet = "RSI Microsoft {:.1f} trop eleve (>65) — zone de prudence".format(rsi)
-
-        # Toutes actions : invalide si RSI > 55 et score < 80
-        # RSI > 55 = marche en territoire neutre a haussier, pas une zone d achat
+                raison_rejet = "RSI {} {:.1f} trop eleve (>65)".format(sig["nom"], rsi)
+        # v11 : SPCX vente geree par check_spcx_ipo, pas par le scoring standard
+        # (eviter une alerte VENTE des le jour 2 parce que RSI IPO est mecaniquement haut)
+        if ticker == "SPCX" and sig["type"] == "VENTE":
+            s_spcx = SEUILS["SPCX"]
+            cours_eur = round(sig["cours"] / EUR_USD_RATE, 2)
+            pv_pct = (cours_eur - s_spcx["px_revient"]) / s_spcx["px_revient"] * 100
+            if pv_pct < SPCX_PROFIT_PCT:
+                raison_rejet = "SPCX post-IPO : vente uniquement via seuil profit +{}% (actuel {:+.1f}%)".format(
+                    SPCX_PROFIT_PCT, pv_pct)
         if sig["type"] == "ACHAT" and sig.get("score", 0) < 80:
-            rsi = sig.get("rsi")
             if rsi and rsi > 55:
-                raison_rejet = "RSI {:.1f} > 55 — score geo insuffisant pour achat en zone neutre ({})".format(
-                    rsi, sig.get("nom","?"))
-
-        # TotalEnergies : invalide si WTI baisse
+                raison_rejet = "RSI {:.1f} > 55 — pas une zone d achat ({})".format(rsi, sig.get("nom","?"))
         if ticker == "TTE.PA" and sig["type"] == "ACHAT":
             if wti_variation is not None and wti_variation < -1.0:
-                raison_rejet = "WTI -{:.1f}% contredit signal achat Total".format(
-                    abs(wti_variation))
-
-        # Defense (Thales/Dassault/Safran) : invalide si RSI pas assez bas
+                raison_rejet = "WTI {:.1f}% contredit signal achat Total".format(wti_variation)
         if ticker in ["HO.PA", "AM.PA", "SAF.PA"] and sig["type"] == "ACHAT":
-            rsi = sig.get("rsi")
             if rsi and rsi > 30:
-                raison_rejet = "RSI {} trop eleve (>30) pour signal defense".format(
-                    round(rsi, 1))
-
-        # RSI CRITIQUE uniquement si vraiment < 25
+                raison_rejet = "RSI {} trop eleve (>30) pour signal defense".format(round(rsi, 1))
         if sig["type"] == "RSI CRITIQUE":
-            rsi = sig.get("rsi")
             if rsi and rsi > 25:
-                raison_rejet = "RSI {} pas assez critique (seuil 25)".format(
-                    round(rsi, 1))
+                raison_rejet = "RSI {} pas assez critique (seuil 25)".format(round(rsi, 1))
 
         if raison_rejet:
             signaux_rejetes.append((sig["nom"], raison_rejet))
-            print("[FILTRE] Signal {} {} rejete : {}".format(
-                sig["type"], sig["nom"], raison_rejet))
+            print("[FILTRE] Signal {} {} rejete : {}".format(sig["type"], sig["nom"], raison_rejet))
         else:
             signaux_valides.append(sig)
 
-    # Remplacer signaux_forts par signaux_valides
     signaux_forts = signaux_valides
 
-    # Si plus aucun signal valide apres filtrage → silence (sauf si force)
-    if not signaux_forts and not force:
-        if signaux_rejetes:
-            print("[SCAN] {} signal(s) rejete(s) par anti-contradiction — silence".format(
-                len(signaux_rejetes)))
-        else:
-            print("[SCAN] Aucun signal — silence conserve")
+    # Silence si rien (sauf force ou alerte SPCX)
+    if not signaux_forts and not spcx_alertes and not force:
+        print("[SCAN] Aucun signal — silence")
         return
 
-    # ── Construire le message ────────────────────────────────
+    # ── Message ───────────────────────────────────────────────
     sent_emoji = "🟢" if sentiment == "HAUSSIER" else "🔴" if sentiment == "BAISSIER" else "🟡"
 
-    # Macro
     macro_lines = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s["type"] in ["INDEX", "MATIERES"]:
             f = "🟢" if d["variation"] >= 0 else "🔴"
-            macro_lines.append("{} {} {} {}{}%".format(
+            suspect = "⚠️" if donnee_suspecte(d) else ""
+            macro_lines.append("{} {} {} {}{}%{}".format(
                 f, s["nom"], d["cours"],
-                "+" if d["variation"]>=0 else "", d["variation"]))
+                "+" if d["variation"]>=0 else "", d["variation"], suspect))
 
-    # Portefeuille CTO complet
     ptf_lines = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s["type"] not in ["CTO", "CTO-US"]: continue
         f = "🟢" if d["variation"] >= 0 else "🔴"
+        cours_aff = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         pv_ligne = calcul_pv(d["ticker"], d["cours"])
         pv_str   = " <i>{:+.0f}EUR</i>".format(pv_ligne) if pv_ligne is not None else ""
         rsi_str  = rsi_emoji(d.get("rsi"), d.get("rsi_niveau"))
@@ -1909,17 +1771,11 @@ def analyse_complete(moment="scan", force=False):
         score_v2 = min(130, d.get("score_vente",0) + max(0,-geo_b) + max(0,-cap_sc2))
         sc_str   = score_emoji(score_a2, score_v2)
         geo_str2 = geo_emoji(d["ticker"], geo_scores)
-        div_w    = protection_dividende(d["ticker"])
-        div_str2 = " 💰{}j".format(
-            (datetime.strptime(DIVIDENDES[d["ticker"]]["date_detachement"],"%Y-%m-%d").date()
-             - date.today()).days) if div_w and "DANS" in div_w else ""
-
         ptf_lines.append("{} <b>{}</b> {}EUR {}{}%{}{}{}{}".format(
-            f, s["nom"], d["cours"],
+            f, s["nom"], cours_aff,
             "+" if d["variation"]>=0 else "", d["variation"],
-            pv_str, rsi_str, sc_str, geo_str2) + div_str2)
+            pv_str, rsi_str, sc_str, geo_str2))
 
-    # Surveillance luxe + ADP
     watch_luxe = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
@@ -1929,7 +1785,6 @@ def analyse_complete(moment="scan", force=False):
                 f, s["nom"], d["cours"],
                 "+" if d["variation"]>=0 else "", d["variation"]))
 
-    # 🪙 Crypto — bloc dedie
     crypto_lines = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
@@ -1955,10 +1810,11 @@ def analyse_complete(moment="scan", force=False):
     if crypto_lines:
         crypto_bloc = "\n🪙 <b>Crypto :</b>\n" + "\n".join(crypto_lines)
 
-    # Analyse Claude — retry 2x, fallback garanti si echec
+    # Analyse Claude — retry 2x, fallback garanti
     analyse = None
     for tentative in range(2):
-        analyse = analyse_claude(donnees_ok, "signal", news_p, news_m, sentiment,
+        analyse = analyse_claude(donnees_ok, "signal" if not force else "manuel",
+                                  news_p, news_m, sentiment,
                                   geo_scores, geo_themes, capitol_trades)
         if analyse:
             break
@@ -1966,7 +1822,6 @@ def analyse_complete(moment="scan", force=False):
         if tentative == 0:
             time.sleep(5)
 
-    # Fallback GARANTI — jamais de message vide
     if not analyse:
         pv_val = pv_totale(donnees_ok)
         top_hausse = sorted(
@@ -1989,14 +1844,6 @@ def analyse_complete(moment="scan", force=False):
         lignes_fb.append("⚠️ Analyse IA indisponible — tape 'analyse' pour reessayer")
         analyse = "\n".join(lignes_fb)
 
-    # Bloc signaux
-    sig_lines = []
-    for sig in signaux_forts:
-        emoji_s = "🎯" if sig["type"] == "ACHAT" else "⚠️" if sig["type"] == "VENTE" else "🆘"
-        sig_lines.append("{} <b>{}</b> {} | {}EUR | RSI:{} | Score:{}".format(
-            emoji_s, sig["nom"], sig["type"],
-            sig["cours"], sig["rsi"], sig["score"]))
-
     geo_bloc = ""
     if geo_themes:
         geo_bloc = "\n🌍 <b>Geo :</b> " + ", ".join(geo_themes[:4])
@@ -2012,7 +1859,10 @@ def analyse_complete(moment="scan", force=False):
 
     div_bloc = "\n🚨 " + " | ".join(alertes_seuil) if alertes_seuil else ""
 
-    # Bloc stop-loss
+    spcx_bloc = ""
+    if spcx_alertes:
+        spcx_bloc = "\n🛸 " + "\n🛸 ".join(spcx_alertes) + "\n"
+
     sl_bloc = ""
     if stop_loss_alertes:
         sl_bloc = "\n🛑 <b>STOP-LOSS > -15% :</b>\n"
@@ -2024,17 +1874,14 @@ def analyse_complete(moment="scan", force=False):
         for sl in stop_loss_crypto:
             sl_bloc += "  🔴 {} {:+.1f}%\n".format(sl["nom"], sl["perte_pct"])
 
-    # Bloc web actu — afficher seulement si contenu utile
     web_bloc = ""
     if web_actu and len(web_actu) > 20:
-        # Filtrer les lignes de raisonnement interne
         lignes_web = [l for l in web_actu.split('\n')
                       if l.strip() and not any(skip in l for skip in
                       ["Je vais", "Maintenant", "D'apres", "recherche", "specifique"])]
         if lignes_web:
             web_bloc = "\n🌐 <b>Actu :</b>\n" + "\n".join(lignes_web[:3]) + "\n"
 
-    # Position sizing dans les signaux
     sig_lines_v2 = []
     for sig in signaux_forts:
         emoji_s = "🎯" if sig["type"] == "ACHAT" else "⚠️" if sig["type"] == "VENTE" else "🆘"
@@ -2044,25 +1891,28 @@ def analyse_complete(moment="scan", force=False):
             emoji_s, sig["nom"], sig["type"],
             sig["cours"], sig["rsi"], sig["score"], sizing))
 
-    emoji_msg = "🚨" if signaux_forts and not force else "📊"
-    titre = "SIGNAL D'ACTION" if signaux_forts and not force else "ANALYSE MANUELLE"
+    emoji_msg = "🚨" if (signaux_forts or spcx_alertes) and not force else "📊"
+    titre = "SIGNAL D'ACTION" if (signaux_forts or spcx_alertes) and not force else "ANALYSE MANUELLE"
+    if session == "US":
+        titre += " (session US)"
 
     msg = ("{} <b>{} — {}</b>\n"
-           "{} Sentiment : <b>{}</b> | PV : <b>{:+.0f}EUR</b>\n"
+           "{} Sentiment : <b>{}</b> | PV : <b>{:+.0f}EUR</b> | Cash : <b>{:.0f}EUR</b>\n"
            "――――――――――――――――――――――\n"
            "<b>Marches :</b> {}\n"
            "――――――――――――――――――――――\n"
            "<b>Portefeuille :</b>\n{}\n"
-           "{}{}{}{}{}{}"
+           "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v10.8 :</b>\n{}\n"
+           "🤖 <b>Agent v11.0 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Reponds librement | 'analyse' | 'geo' | 'stop loss' | 'emergent' | 'ia'</i>").format(
+           "<i>Reponds librement | 'analyse' | 'spacex' | 'cash X' | 'geo' | 'stop loss' | 'backtest'</i>").format(
         emoji_msg, titre, now,
-        sent_emoji, sentiment, pv,
+        sent_emoji, sentiment, pv, cash_dispo,
         " | ".join(macro_lines),
         "\n".join(ptf_lines),
         "\n\n<b>Signaux :</b>\n" + "\n".join(sig_lines_v2) + "\n" if sig_lines_v2 else "",
+        spcx_bloc,
         geo_bloc, luxe_bloc + "\n" if luxe_bloc else "",
         crypto_bloc + "\n" if crypto_bloc else "",
         div_bloc + "\n" if div_bloc else "",
@@ -2070,49 +1920,59 @@ def analyse_complete(moment="scan", force=False):
         analyse)
 
     send_telegram(msg)
+
+    # v11 : enregistrement AUTOMATIQUE des signaux envoyes → backtest enfin alimente
+    for sig in signaux_forts:
+        cours_eur = round(sig["cours"]/EUR_USD_RATE, 2) if SEUILS.get(sig["ticker"],{}).get("type")=="CTO-US" else sig["cours"]
+        enregistrer_decision(sig["type"], sig["nom"], cours_eur,
+                             rsi=sig.get("rsi"), score=sig.get("score"))
+
     m_mem["dernier_scan"] = now
     save_memoire(m_mem)
-    print("[" + now + "] Message envoye — {} signaux".format(len(signaux_forts)))
+    print("[" + now + "] Message envoye — {} signaux, {} alertes SPCX".format(
+        len(signaux_forts), len(spcx_alertes)))
+
 
 def marche_ouvert():
-    """
-    Retourne True uniquement si le marché est ouvert :
-    - Lundi à vendredi uniquement
-    - Entre 09h15 et 17h30 heure Paris (Euronext)
-    - Pas le weekend
-    """
+    """Euronext : lun-ven 09h15-17h30 Paris."""
     now = datetime.now(PARIS_TZ)
-    if now.weekday() >= 5:      return False  # Samedi/Dimanche
-    if now.hour < 9:            return False  # Avant ouverture
-    if now.hour == 9 and now.minute < 15: return False  # Avant 9h15
-    if now.hour > 17:           return False  # Apres fermeture
-    if now.hour == 17 and now.minute >= 30: return False  # Apres 17h30
+    if now.weekday() >= 5:      return False
+    if now.hour < 9:            return False
+    if now.hour == 9 and now.minute < 15: return False
+    if now.hour > 17:           return False
+    if now.hour == 17 and now.minute >= 30: return False
     return True
 
+
+def marche_us_ouvert():
+    """v11 : Nasdaq/NYSE : lun-ven 15h30-22h00 Paris (horaires standard)."""
+    now = datetime.now(PARIS_TZ)
+    if now.weekday() >= 5:      return False
+    if now.hour < 15:           return False
+    if now.hour == 15 and now.minute < 30: return False
+    if now.hour >= 22:          return False
+    return True
+
+
 def analyse_matin():
-    """Scan des signaux — envoie UNIQUEMENT si marche ouvert ET signal d'action"""
-    if not marche_ouvert():
-        print("[SCAN] Marche ferme — silence")
-        return
-    analyse_complete(force=False)
+    if marche_ouvert():
+        analyse_complete(force=False, session="EU")
+    elif marche_us_ouvert():
+        # Apres 17h30 Paris : session US seule → scan reduit SPCX/MSFT/crypto
+        analyse_complete(force=False, session="US")
+    else:
+        print("[SCAN] Marches fermes — silence")
+
 
 def analyse_forcee():
-    """Commande manuelle 'analyse' — envoie toujours peu importe l'heure"""
-    analyse_complete(force=True)
+    analyse_complete(force=True, session="EU")
 
 # ============================================================
-# AUTO-OPTIMISATION HEBDOMADAIRE — Chaque lundi 08:30 Paris
-# Le bot analyse ses propres performances et s'ameliore seul
+# AUTO-OPTIMISATION HEBDOMADAIRE — Lundi 08h30 Paris
+# v11 : taux d echec calcule sur le backtest REEL (bug v10.7 corrige :
+# le champ 'resultat' n existait pas dans les decisions)
 # ============================================================
 def auto_optimisation():
-    """
-    Chaque lundi matin, le bot :
-    1. Analyse le backtest de ses decisions passees
-    2. Detecte ses erreurs recurrentes
-    3. Ajuste ses parametres (seuils RSI, seuil alerte, seuil score)
-    4. Met a jour la memoire avec les nouveaux parametres
-    5. Envoie un rapport Telegram
-    """
     now = datetime.now(PARIS_TZ)
     print("[AUTO-OPTIM] Demarrage optimisation hebdomadaire...")
 
@@ -2120,7 +1980,6 @@ def auto_optimisation():
     decisions = m.get("decisions", [])
     params    = m.get("params", {})
 
-    # Parametres actuels (avec valeurs par defaut)
     seuil_score_actuel  = params.get("seuil_score", 50)
     seuil_alerte_actuel = params.get("seuil_alerte", 3.0)
     seuil_rsi_achat     = params.get("seuil_rsi_achat", 30)
@@ -2129,9 +1988,9 @@ def auto_optimisation():
     if not ANTHROPIC_API_KEY:
         return
 
-    # Calcul backtest sur les 4 dernieres semaines
+    # v11 : backtest reel pour evaluer chaque decision
     resultats_backtest = []
-    for d in decisions[-20:]:  # 20 dernieres decisions
+    for d in decisions[-20:]:
         ticker = None
         for k, v in SEUILS.items():
             if v["nom"].lower() in d.get("valeur", "").lower():
@@ -2142,30 +2001,30 @@ def auto_optimisation():
         if not data: continue
         px = d.get("prix", 0)
         if px and data["cours"]:
-            perf = round((data["cours"] - px) / px * 100, 1)
+            cours_comp = round(data["cours"]/EUR_USD_RATE,2) if SEUILS[ticker].get("type")=="CTO-US" else data["cours"]
+            perf = round((cours_comp - px) / px * 100, 1)
+            action = d.get("action", "ACHAT").upper()
+            bon = (perf < 0) if "VENTE" in action else (perf > 0)
             resultats_backtest.append({
                 "valeur":  d.get("valeur", "?"),
-                "action":  d.get("action", "?"),
+                "action":  action,
                 "date":    d.get("date", "?"),
                 "prix":    px,
-                "cours_actuel": data["cours"],
+                "cours_actuel": cours_comp,
                 "perf":    perf,
                 "rsi_au_signal": d.get("rsi_signal", None),
                 "score_au_signal": d.get("score_signal", None),
-                "verdict": "BON" if perf > 0 else "MAUVAIS"
+                "verdict": "BON" if bon else "MAUVAIS"
             })
 
-    # Stats globales
     nb_bons    = sum(1 for r in resultats_backtest if r["verdict"] == "BON")
     nb_mauvais = sum(1 for r in resultats_backtest if r["verdict"] == "MAUVAIS")
     taux_succes = round(nb_bons / len(resultats_backtest) * 100) if resultats_backtest else 0
 
-    # Historique des optimisations precedentes
     historique_optim = m.get("historique_optimisations", [])
 
-    # Construire le prompt d'auto-optimisation
     backtest_str = "\n".join([
-        "- {} {} le {} a {}EUR → cours actuel {}EUR → {:+.1f}% [{}] RSI:{} Score:{}".format(
+        "- {} {} le {} a {}EUR → {}EUR → {:+.1f}% [{}] RSI:{} Score:{}".format(
             r["action"], r["valeur"], r["date"], r["prix"],
             r["cours_actuel"], r["perf"], r["verdict"],
             r.get("rsi_au_signal", "?"), r.get("score_au_signal", "?"))
@@ -2181,42 +2040,31 @@ def auto_optimisation():
 Analyse les performances passees et propose des ajustements PRECIS des parametres.
 
 PARAMETRES ACTUELS :
-- Seuil score achat : {seuil_score} pts (signal declenche si score >= ce seuil)
-- Seuil alerte variation : {seuil_alerte}% (alerte si variation >= ce %)
-- Seuil RSI achat : {seuil_rsi_achat} (survendu si RSI <= ce seuil)
-- Seuil RSI critique : {seuil_rsi_critique} (critique si RSI <= ce seuil)
+- Seuil score achat : {seuil_score} pts
+- Seuil alerte variation : {seuil_alerte}%
+- Seuil RSI achat : {seuil_rsi_achat}
+- Seuil RSI critique : {seuil_rsi_critique}
 
-BACKTEST DES DECISIONS ({nb_decisions} decisions analysees) :
-Taux de succes : {taux_succes}%
-Bonnes decisions : {nb_bons} | Mauvaises : {nb_mauvais}
-
-Detail :
+BACKTEST ({nb_decisions} decisions, taux de succes {taux_succes}%) :
+Bonnes : {nb_bons} | Mauvaises : {nb_mauvais}
 {backtest}
 
-HISTORIQUE DES OPTIMISATIONS PRECEDENTES :
+HISTORIQUE DES OPTIMISATIONS :
 {historique}
 
-ANALYSE DEMANDEE (sois tres precis et chiffre) :
-1. DIAGNOSTIC : quels sont les 2-3 problemes principaux detectes dans les decisions ?
-   (ex: "Les achats avec RSI entre 25-30 ont un taux echec 70%" ou "Les signaux score 50-60 sont peu fiables")
+ANALYSE DEMANDEE :
+1. DIAGNOSTIC : 2-3 problemes principaux, chiffres
+2. AJUSTEMENTS (uniquement si justifies par les donnees, sinon liste vide)
+3. REGLE APPRISE (1 phrase actionnable)
+4. SCORE DE CONFIANCE portefeuille (0-100)
 
-2. AJUSTEMENTS PROPOSES (uniquement si justifies par les donnees) :
-   Pour chaque parametre a changer, donne :
-   - Parametre : [nom]
-   - Valeur actuelle : [X]
-   - Nouvelle valeur : [Y]
-   - Raison : [1 phrase basee sur les donnees]
-
-3. REGLE APPRISE cette semaine (1 phrase actionnable pour ameliorer les futurs signaux)
-
-4. SCORE DE CONFIANCE du portefeuille actuel (0-100) base sur les tendances observees
+IMPORTANT : avec moins de 8 decisions evaluees, ne propose AUCUN ajustement (echantillon trop petit).
 
 Reponds en JSON strict (sans markdown) :
 {{
   "diagnostic": "...",
   "ajustements": [
-    {{"param": "seuil_score", "ancienne_valeur": X, "nouvelle_valeur": Y, "raison": "..."}},
-    ...
+    {{"param": "seuil_score", "ancienne_valeur": X, "nouvelle_valeur": Y, "raison": "..."}}
   ],
   "regle_apprise": "...",
   "score_confiance_portefeuille": XX,
@@ -2237,17 +2085,14 @@ Reponds en JSON strict (sans markdown) :
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         resp = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=400,
             messages=[{"role": "user", "content": prompt_optim}]
         )
         raw = resp.content[0].text.strip()
 
-        # Parser le JSON — nettoyage robuste
         import re
-        # Supprimer les blocs markdown
         raw_clean = re.sub(r'```json|```', '', raw).strip()
-        # Extraire le premier objet JSON valide
         optim = None
         for pattern in [r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', r'\{.*?\}']:
             match = re.search(pattern, raw_clean, re.DOTALL)
@@ -2256,10 +2101,8 @@ Reponds en JSON strict (sans markdown) :
                     optim = json.loads(match.group())
                     break
                 except json.JSONDecodeError:
-                    # Essayer de nettoyer les caracteres speciaux
-                    cleaned = match.group()
-                    cleaned = cleaned.replace('\n', ' ').replace('\r', '')
-                    cleaned = re.sub(r',\s*}', '}', cleaned)  # Trailing commas
+                    cleaned = match.group().replace('\n', ' ').replace('\r', '')
+                    cleaned = re.sub(r',\s*}', '}', cleaned)
                     cleaned = re.sub(r',\s*]', ']', cleaned)
                     try:
                         optim = json.loads(cleaned)
@@ -2267,7 +2110,6 @@ Reponds en JSON strict (sans markdown) :
                     except:
                         continue
         if not optim:
-            # Fallback : construire un dict minimal depuis le texte
             print("[AUTO-OPTIM] JSON invalide, fallback texte")
             optim = {
                 "diagnostic": raw_clean[:200],
@@ -2277,34 +2119,28 @@ Reponds en JSON strict (sans markdown) :
                 "resume_telegram": "Optimisation effectuee (parsing partiel)"
             }
 
-        # Appliquer les ajustements
+        # v11 : garde-fou supplementaire — pas d ajustement si echantillon < 8
         ajustements_appliques = []
-        for ajust in optim.get("ajustements", []):
-            param = ajust.get("param", "")
-            nouvelle_val = ajust.get("nouvelle_valeur")
-            ancienne_val = ajust.get("ancienne_valeur")
-            raison = ajust.get("raison", "")
+        if len(resultats_backtest) >= 8:
+            for ajust in optim.get("ajustements", []):
+                param = ajust.get("param", "")
+                nouvelle_val = ajust.get("nouvelle_valeur")
+                ancienne_val = ajust.get("ancienne_valeur")
+                raison = ajust.get("raison", "")
+                if param and nouvelle_val is not None:
+                    if param == "seuil_score" and 35 <= nouvelle_val <= 75:
+                        params["seuil_score"] = nouvelle_val
+                        ajustements_appliques.append("{}: {} → {} ({})".format(param, ancienne_val, nouvelle_val, raison))
+                    elif param == "seuil_alerte" and 2.0 <= nouvelle_val <= 6.0:
+                        params["seuil_alerte"] = nouvelle_val
+                        ajustements_appliques.append("{}: {} → {} ({})".format(param, ancienne_val, nouvelle_val, raison))
+                    elif param == "seuil_rsi_achat" and 20 <= nouvelle_val <= 40:
+                        params["seuil_rsi_achat"] = nouvelle_val
+                        ajustements_appliques.append("{}: {} → {} ({})".format(param, ancienne_val, nouvelle_val, raison))
+                    elif param == "seuil_rsi_critique" and 10 <= nouvelle_val <= 25:
+                        params["seuil_rsi_critique"] = nouvelle_val
+                        ajustements_appliques.append("{}: {} → {} ({})".format(param, ancienne_val, nouvelle_val, raison))
 
-            if param and nouvelle_val is not None:
-                # Garde-fous : ne pas aller dans des extremes dangereux
-                if param == "seuil_score" and 35 <= nouvelle_val <= 75:
-                    params["seuil_score"] = nouvelle_val
-                    ajustements_appliques.append("{}: {} → {} ({})".format(
-                        param, ancienne_val, nouvelle_val, raison))
-                elif param == "seuil_alerte" and 2.0 <= nouvelle_val <= 6.0:
-                    params["seuil_alerte"] = nouvelle_val
-                    ajustements_appliques.append("{}: {} → {} ({})".format(
-                        param, ancienne_val, nouvelle_val, raison))
-                elif param == "seuil_rsi_achat" and 20 <= nouvelle_val <= 40:
-                    params["seuil_rsi_achat"] = nouvelle_val
-                    ajustements_appliques.append("{}: {} → {} ({})".format(
-                        param, ancienne_val, nouvelle_val, raison))
-                elif param == "seuil_rsi_critique" and 10 <= nouvelle_val <= 25:
-                    params["seuil_rsi_critique"] = nouvelle_val
-                    ajustements_appliques.append("{}: {} → {} ({})".format(
-                        param, ancienne_val, nouvelle_val, raison))
-
-        # Sauvegarder en memoire
         m["params"] = params
         m["derniere_optimisation"] = now.strftime("%d/%m/%Y %H:%M")
         m["regle_apprise"] = optim.get("regle_apprise", "")
@@ -2314,11 +2150,11 @@ Reponds en JSON strict (sans markdown) :
             "taux_succes": taux_succes,
             "ajustements": ajustements_appliques
         })
-        m["historique_optimisations"] = historique_optim[-10:]  # Garder 10 semaines
+        m["historique_optimisations"] = historique_optim[-10:]
         save_memoire(m)
 
-        # Rapport Telegram
-        adj_str = "\n".join(["  • " + a for a in ajustements_appliques]) if ajustements_appliques else "  Aucun ajustement necessaire cette semaine"
+        adj_str = "\n".join(["  • " + a for a in ajustements_appliques]) if ajustements_appliques \
+                  else "  Aucun ajustement ({} decisions evaluees, minimum 8)".format(len(resultats_backtest))
 
         msg = ("🔧 <b>Auto-optimisation hebdomadaire</b> — {}\n"
                "――――――――――――――――――――――\n"
@@ -2339,21 +2175,57 @@ Reponds en JSON strict (sans markdown) :
             optim.get("score_confiance_portefeuille", "?")
         )
         send_telegram(msg)
-        print("[AUTO-OPTIM] OK — {} ajustements appliques".format(len(ajustements_appliques)))
+        print("[AUTO-OPTIM] OK — {} ajustements".format(len(ajustements_appliques)))
 
     except Exception as e:
         print("[AUTO-OPTIM] Erreur : " + str(e))
         send_telegram("🔧 <b>Auto-optimisation</b> : erreur cette semaine — " + str(e)[:100])
 
 
+def auto_optimisation_avec_patch():
+    """v11 : taux d echec calcule sur le backtest reel, plus de champ fantome."""
+    auto_optimisation()
+    if not GITHUB_TOKEN:
+        return
+    resultats = backtest_decisions()
+    if len(resultats) < 8:
+        return
+    mauvaises = [r for r in resultats[-10:] if not r.get("bon", False)]
+    taux_echec = len(mauvaises) / min(len(resultats), 10)
+    if taux_echec > 0.4 and ANTHROPIC_API_KEY:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        try:
+            msg = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=200,
+                messages=[{"role": "user", "content":
+                    "Le bot de trading a un taux d echec de {:.0f}%. "
+                    "Les mauvaises decisions recentes : {}. "
+                    "Propose UNE seule amelioration tres courte et precise "
+                    "pour les filtres anti-contradiction (max 20 mots).".format(
+                        taux_echec * 100,
+                        " | ".join([r.get("valeur","?") + " " + r.get("action","?")
+                                    for r in mauvaises[:3]]))}])
+            suggestion = msg.content[0].text
+            print("[AUTO-OPTIM] Suggestion patch : " + suggestion)
+            send_telegram(
+                "🧠 <b>Auto-optimisation avancee</b>\n"
+                "Taux echec : {:.0f}%\n"
+                "Suggestion : {}".format(taux_echec * 100, suggestion))
+        except Exception as e:
+            print("[AUTO-OPTIM PATCH] " + str(e))
+
+
 def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
-    """
-    Enregistre une decision dans la memoire pour le backtest et l'auto-optimisation.
-    Appele automatiquement quand Claude propose un ordre dans l'analyse.
-    """
+    """Enregistre une decision/signal pour le backtest. v11 : appel automatique a chaque signal envoye."""
     m = load_memoire()
+    # v11 : deduplication — pas deux fois le meme signal le meme jour
+    date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
+    for d in m.get("decisions", []):
+        if d.get("date") == date_str and d.get("valeur") == valeur and d.get("action") == action:
+            return
     decision = {
-        "date":         datetime.now(PARIS_TZ).strftime("%d/%m/%Y"),
+        "date":         date_str,
         "action":       action,
         "valeur":       valeur,
         "prix":         prix,
@@ -2361,11 +2233,13 @@ def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
         "score_signal": score
     }
     m.setdefault("decisions", []).append(decision)
-    # Garder 50 decisions max
     m["decisions"] = m["decisions"][-50:]
     save_memoire(m)
     print("[DECISION] Enregistree : {} {} a {}EUR".format(action, valeur, prix))
 
+# ============================================================
+# MAIN
+# ============================================================
 if __name__ == "__main__":
     if not TELEGRAM_TOKEN or not ANTHROPIC_API_KEY:
         print("[ERREUR] Variables Railway manquantes")
@@ -2374,11 +2248,10 @@ if __name__ == "__main__":
     EUR_USD_RATE = get_eur_usd()
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
-    print("[INIT] Demarrage timestamp : {}".format(bot_start_time))
     print("=" * 55)
-    print(" Agent Trading Matthieu v10.6 - Intelligence Complete")
-    print(" BTC ETH SOL XRP | Fallback garanti | GitHub auto-deploy")
-    print(" Scan 30min | Weekend OFF | Lundi optim+decouverte")
+    print(" Agent Trading Matthieu v11.0 — Fable upgrade")
+    print(" SPCX position reelle | Session US 15h30-22h | Cash dynamique")
+    print(" Decisions auto-enregistrees | Sanity check donnees")
     print("=" * 55)
 
     verrou = Path("/tmp/bot_started.lock")
@@ -2395,58 +2268,54 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v10.8 — Crypto + Fix message vide !</b>\n\n"
-            "✅ Crypto : BTC ETH SOL XRP surveilles (RSI MACD Bollinger)\n"
-            "✅ Signaux crypto reactifs (seuils RSI 35/65 vs 30/70 actions)\n"
-            "✅ ETP Boursobank : ABTC AETH CSOL accessibles sans compte crypto\n"
-            "✅ Stop-loss crypto 20% (vs 15% actions)\n"
-            "✅ Fix definitif message vide (fallback garanti)\n"
-            "✅ GEO_IMPACT crypto : halving ETF DeFi regulation\n\n"
-            "Commandes : 'analyse' | 'achat NOM QTE PRIX' | 'stop loss' | 'emergent'"
+            "🚀 <b>Agent Trading v11.0 — Fable upgrade !</b>\n\n"
+            "🛸 SPCX en position reelle : 1 titre @120.75EUR (PV suivie, stop-loss actif)\n"
+            "🛸 Surveillance 2 phases : profit >+40% | renfort &lt;112EUR si RSI&lt;45\n"
+            "🇺🇸 Session US 15h30-22h00 : SPCX, MSFT et crypto surveilles apres Euronext\n"
+            "💰 Cash dynamique : tape 'cash 881.67' pour mettre a jour\n"
+            "📊 Signaux auto-enregistres → backtest et auto-optim enfin alimentes\n"
+            "🧪 Sanity check : donnees aberrantes flaggees, plus de faux signaux type WTI\n"
+            "🤖 Modele : claude-sonnet-4-6\n\n"
+            "Commandes : 'analyse' | 'spacex' | 'cash X' | 'achat NOM QTE PRIX' | 'stop loss' | 'backtest'"
         )
     else:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
 
-    # Timestamps manuels — evite tous les bugs de schedule
-    dernier_scan      = datetime.now(PARIS_TZ) - timedelta(minutes=31)
-    dernier_eur_usd   = datetime.now(PARIS_TZ)
-    dernier_optim     = datetime.now(PARIS_TZ) - timedelta(days=1)
+    dernier_scan       = datetime.now(PARIS_TZ) - timedelta(minutes=31)
+    dernier_eur_usd    = datetime.now(PARIS_TZ)
+    dernier_optim      = datetime.now(PARIS_TZ) - timedelta(days=1)
     dernier_decouverte = datetime.now(PARIS_TZ) - timedelta(days=1)
 
-    INTERVALLE_SCAN    = 30   # minutes entre chaque scan
-    INTERVALLE_EUR_USD = 60   # minutes entre chaque refresh EUR/USD
+    INTERVALLE_SCAN    = 30
+    INTERVALLE_EUR_USD = 60
 
     while True:
         maintenant = datetime.now(PARIS_TZ)
 
-        # ── Scan signaux (toutes les 30min, marche ouvert uniquement) ──
         minutes_depuis_scan = (maintenant - dernier_scan).total_seconds() / 60
         if minutes_depuis_scan >= INTERVALLE_SCAN:
             dernier_scan = maintenant
-            if marche_ouvert():
+            if marche_ouvert() or marche_us_ouvert():
                 print("[SCAN] {}".format(maintenant.strftime("%H:%M")))
                 analyse_matin()
             else:
-                print("[SCAN] {} — marche ferme, silence".format(
+                print("[SCAN] {} — marches fermes, silence".format(
                     maintenant.strftime("%H:%M")))
 
-        # ── Refresh EUR/USD toutes les heures ──
         minutes_depuis_eur = (maintenant - dernier_eur_usd).total_seconds() / 60
         if minutes_depuis_eur >= INTERVALLE_EUR_USD:
             dernier_eur_usd = maintenant
             EUR_USD_RATE = get_eur_usd()
             print("[EUR/USD] {}".format(EUR_USD_RATE))
 
-        # ── Auto-optimisation + decouverte chaque lundi matin ──
         est_lundi    = maintenant.weekday() == 0
         est_08h30    = maintenant.hour == 8 and maintenant.minute >= 30
         pas_fait_auj = dernier_optim.date() < maintenant.date()
         if est_lundi and est_08h30 and pas_fait_auj:
             dernier_optim = maintenant
-            print("[OPTIM] Demarrage auto-optimisation v10.7 avec patch")
+            print("[OPTIM] Demarrage auto-optimisation v11.0")
             auto_optimisation_avec_patch()
 
-        # Decouverte societes emergentes lundi 08h45
         est_08h45 = maintenant.hour == 8 and maintenant.minute >= 45
         pas_decouvert_auj = dernier_decouverte.date() < maintenant.date()
         if est_lundi and est_08h45 and pas_decouvert_auj:
@@ -2454,9 +2323,5 @@ if __name__ == "__main__":
             print("[DECOUVERTE] Lancement recherche societes emergentes")
             decouverte_societes_emergentes()
 
-        # ── Ecoute messages Telegram ──
         check_messages_telegram()
-
-        # Pause 3s — reactivite Telegram immediate
-        # Les scans sont proteges par timestamps, pas de double declenchement
         time.sleep(3)
