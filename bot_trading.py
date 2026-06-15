@@ -1540,7 +1540,6 @@ REGLES ABSOLUES INVIOLABLES :
 
 POSITIONS SPECIALES :
 - SPCX (SpaceX) : 1 titre @120.75EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
-- Capgemini : -26% vs PRU 131EUR, en stop-loss depuis des semaines. Si tu en parles, pose la question de fond : couper la perte ou conviction IA long terme ? Ne pas laisser trainer sans decision.
 
 REGLES DE RAISONNEMENT (dans cet ordre) :
 1. Contradictions d abord : defense RSI>65 = pas d achat | TotalEnergies = achat seulement si WTI monte ET RSI<40 | geo seul = invalide
