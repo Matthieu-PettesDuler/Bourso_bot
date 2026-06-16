@@ -28,7 +28,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO       = os.environ.get("GITHUB_REPO", "Matthieu-PettesDuler/Bourso_bot")
 GITHUB_FILE       = os.environ.get("GITHUB_FILE", "bot_trading.py")
-MEMOIRE_FILE      = "/tmp/memoire_matthieu.json"
+MEMOIRE_FILE      = os.environ.get("MEMOIRE_PATH", "/tmp/memoire_matthieu.json")
 BOT_FILE_LOCAL    = "/app/bot_trading.py"
 PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
@@ -1381,7 +1381,13 @@ def load_memoire():
                 return json.load(f)
     except: pass
     return {"decisions": [], "stats": {"bonnes": 0, "mauvaises": 0}}
-
+def save_memoire(m):
+    try:
+        os.makedirs(os.path.dirname(MEMOIRE_FILE) or ".", exist_ok=True)
+        with open(MEMOIRE_FILE, "w") as f:
+            json.dump(m, f, ensure_ascii=False)
+    except: pass
+        
 def save_memoire(m):
     try:
         with open(MEMOIRE_FILE, "w") as f:
