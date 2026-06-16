@@ -119,7 +119,6 @@ CORRELATIONS = {
     "AM.PA":  "Dassault Aviation liee au Rafale et budget defense",
     "SU.PA":  "Schneider profite de l'electrification et des data centers IA",
     "ORA.PA": "Orange resiste en crise, dividende stable — NE PAS VENDRE avant juillet 2026",
-    "CAP.PA": "Capgemini suit la demande IA/IT — position en stop-loss (-26%), decision a trancher : couper ou conviction IA",
     "MSFT":   "Microsoft beneficie de l'IA via Azure et OpenAI — ordre limite obligatoire",
     "PLTR":   "Palantir = IA defense, monte avec contrats gouvernement US et rearmement",
     "GOOGL":  "Alphabet/Google = IA via Gemini et Google Cloud",
