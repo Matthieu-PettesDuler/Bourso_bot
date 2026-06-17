@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.0 — "Fable upgrade"
+Agent Trading Matthieu v11.1 — corrections fiabilite
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 120.75EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -28,7 +28,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO       = os.environ.get("GITHUB_REPO", "Matthieu-PettesDuler/Bourso_bot")
 GITHUB_FILE       = os.environ.get("GITHUB_FILE", "bot_trading.py")
-MEMOIRE_FILE      = os.environ.get("MEMOIRE_PATH", "/tmp/memoire_matthieu.json")
+MEMOIRE_FILE      = os.environ.get("MEMOIRE_FILE", "/data/memoire_matthieu.json")
 BOT_FILE_LOCAL    = "/app/bot_trading.py"
 PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
@@ -68,7 +68,7 @@ SEUILS = {
     "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 83, "px_revient": 10.70},
     "CAP.PA":  {"nom": "Capgemini",         "achat": 85.00, "vente": 130.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 0,  "px_revient": 0},
     "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 12, "px_revient": 78.84},
-    "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
+    "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 3,  "px_revient": 85.51},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 3,  "px_revient": 166.78},
     "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 2,  "px_revient": 289.87},
     "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 9,  "px_revient": 240.99},
@@ -119,6 +119,7 @@ CORRELATIONS = {
     "AM.PA":  "Dassault Aviation liee au Rafale et budget defense",
     "SU.PA":  "Schneider profite de l'electrification et des data centers IA",
     "ORA.PA": "Orange resiste en crise, dividende stable — NE PAS VENDRE avant juillet 2026",
+    "CAP.PA": "Capgemini suit la demande IA/IT — position soldee (quantite 0), en surveillance",
     "MSFT":   "Microsoft beneficie de l'IA via Azure et OpenAI — ordre limite obligatoire",
     "PLTR":   "Palantir = IA defense, monte avec contrats gouvernement US et rearmement",
     "GOOGL":  "Alphabet/Google = IA via Gemini et Google Cloud",
@@ -1097,7 +1098,7 @@ def check_messages_telegram():
         else:
             web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-        send_telegram("🤖 <b>Agent v11.0 :</b>\n" + reponse)
+        send_telegram("🤖 <b>Agent v11.1 :</b>\n" + reponse)
 
 # ============================================================
 # GEOPOLITIQUE — Extraction et scoring
@@ -1381,18 +1382,16 @@ def load_memoire():
                 return json.load(f)
     except: pass
     return {"decisions": [], "stats": {"bonnes": 0, "mauvaises": 0}}
+
 def save_memoire(m):
     try:
-        os.makedirs(os.path.dirname(MEMOIRE_FILE) or ".", exist_ok=True)
+        # v11.1 : creer le dossier parent si besoin (ex: /data sur volume Railway)
+        Path(MEMOIRE_FILE).parent.mkdir(parents=True, exist_ok=True)
         with open(MEMOIRE_FILE, "w") as f:
             json.dump(m, f, ensure_ascii=False)
-    except: pass
-        
-def save_memoire(m):
-    try:
-        with open(MEMOIRE_FILE, "w") as f:
-            json.dump(m, f, ensure_ascii=False)
-    except: pass
+    except Exception as e:
+        # v11.1 : ne plus avaler l erreur en silence — un echec de sauvegarde explique les resets de cash
+        print("[MEMOIRE] ECHEC sauvegarde {} : {}".format(MEMOIRE_FILE, e))
 
 def backtest_decisions():
     m = load_memoire()
@@ -1468,7 +1467,7 @@ def pv_totale(donnees):
 # ANALYSE CLAUDE — prompt v11.0 (cash dynamique, SPCX, Capgemini)
 # ============================================================
 def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_themes,
-                   capitol_trades=None, question_user=None):
+                   capitol_trades=None, question_user=None, signaux_valides=None):
     if not ANTHROPIC_API_KEY:
         return "Cle Claude manquante."
 
@@ -1508,6 +1507,7 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
         if not d: continue
         s = SEUILS.get(d["ticker"], {})
         if s.get("type") not in ["CTO","CTO-US"]: continue
+        if not s.get("quantite"): continue  # v11.1 : ignorer positions soldees (quantite 0)
         pv = calcul_pv(d["ticker"], d["cours"]) or 0
         rsi = d.get("rsi","?")
         cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
@@ -1515,6 +1515,22 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
             s.get("nom","?"), cours_eur, rsi, pv))
 
     pv_tot = pv_totale(donnees)
+
+    # v11.1 : liste blanche des signaux valides par le moteur deterministe.
+    # Claude ne peut recommander QUE ce qui est dans cette liste — fini les achats inventes.
+    if signaux_valides:
+        lignes_sig = []
+        for sig in signaux_valides:
+            nb = sig.get("nb_actions", 1)
+            lignes_sig.append("{} {} | {}EUR | RSI {} | Score {} | {} action(s)".format(
+                sig.get("type","?"), sig.get("nom","?"), sig.get("cours","?"),
+                sig.get("rsi","?"), sig.get("score","?"), nb))
+        signaux_moteur = ("SIGNAUX VALIDES PAR LE MOTEUR (seuls autorises pour [ACTION]) :\n"
+                          + "\n".join(lignes_sig))
+    else:
+        signaux_moteur = ("SIGNAUX VALIDES PAR LE MOTEUR : AUCUN.\n"
+                          "=> [ACTION] DOIT etre 'Rien a faire'. Tu n as le droit de proposer "
+                          "AUCUN achat ni vente aujourd hui.")
 
     signaux_str = ""
     if question_user and question_user.strip():
@@ -1532,6 +1548,8 @@ MARCHE {moment} {date} :
 GEO : {geo}
 NEWS : {news}
 SENTIMENT : {sentiment}
+
+{signaux_moteur}
 {signaux}
 
 REGLES ABSOLUES INVIOLABLES :
@@ -1540,8 +1558,13 @@ REGLES ABSOLUES INVIOLABLES :
 3. JAMAIS proposer achat si RSI > 65. RSI > 70 = SURACHAT. RSI < 30 = SURVENTE.
 4. JAMAIS vendre Orange avant juillet 2026.
 5. Prix toujours en EUR. Ordre limite obligatoire pour Microsoft et SPCX.
-6. Score geo seul (sans RSI < 40) = signal invalide pour achat.
+6. Un score geo positif NE suffit JAMAIS seul. Achat autorise UNIQUEMENT si RSI < 40.
+   Si RSI >= 40, l achat est INVALIDE meme avec un geo +30 (ex : RSI 50 + geo +30 = INVALIDE).
 7. Une donnee marquee [DONNEE SUSPECTE] ne justifie AUCUN signal.
+8. CONTRAINTE ABSOLUE : ton [ACTION] doit etre soit l un des SIGNAUX VALIDES PAR LE MOTEUR
+   listes ci-dessus, soit "Rien a faire". Tu n inventes JAMAIS un achat ou une vente
+   absent de cette liste, meme si le contexte te semble favorable. Si la liste est vide,
+   la seule reponse possible est "Rien a faire".
 
 POSITIONS SPECIALES :
 - SPCX (SpaceX) : 1 titre @120.75EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
@@ -1569,6 +1592,7 @@ REPONDS EN 200 MOTS MAX :
         geo=geo_str[:200] if geo_str else "RAS",
         news=(" | ".join(news_p[:2] + news_m[:1]))[:150] if (news_p or news_m) else "RAS",
         sentiment=sentiment,
+        signaux_moteur=signaux_moteur,
         signaux=signaux_str
     )
 
@@ -1658,6 +1682,9 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         score_a = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
         score_v = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
 
+        # v11.1 : pas de signal VENTE si on ne detient pas le titre (quantite 0 = position soldee)
+        detenu = bool(s.get("quantite"))
+
         if score_a >= seuil_score:
             nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
@@ -1668,7 +1695,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
                 "variation": d["variation"],
                 "nb_actions": nb_actions
             })
-        elif score_v >= seuil_score:
+        elif score_v >= seuil_score and detenu:
             signaux_forts.append({
                 "ticker": d["ticker"], "nom": s["nom"],
                 "type": "VENTE", "score": score_v,
@@ -1764,6 +1791,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s["type"] not in ["CTO", "CTO-US"]: continue
+        if not s.get("quantite"): continue  # v11.1 : ne pas afficher les positions soldees
         f = "🟢" if d["variation"] >= 0 else "🔴"
         cours_aff = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         pv_ligne = calcul_pv(d["ticker"], d["cours"])
@@ -1819,7 +1847,8 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     for tentative in range(2):
         analyse = analyse_claude(donnees_ok, "signal" if not force else "manuel",
                                   news_p, news_m, sentiment,
-                                  geo_scores, geo_themes, capitol_trades)
+                                  geo_scores, geo_themes, capitol_trades,
+                                  signaux_valides=signaux_forts)
         if analyse:
             break
         print("[ANALYSE] Tentative {} echouee".format(tentative + 1))
@@ -1908,7 +1937,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.0 :</b>\n{}\n"
+           "🤖 <b>Agent v11.1 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Reponds librement | 'analyse' | 'spacex' | 'cash X' | 'geo' | 'stop loss' | 'backtest'</i>").format(
         emoji_msg, titre, now,
@@ -2253,7 +2282,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.0 — Fable upgrade")
+    print(" Agent Trading Matthieu v11.1 — corrections fiabilite")
     print(" SPCX position reelle | Session US 15h30-22h | Cash dynamique")
     print(" Decisions auto-enregistrees | Sanity check donnees")
     print("=" * 55)
@@ -2272,7 +2301,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.0 — Fable upgrade !</b>\n\n"
+            "🚀 <b>Agent Trading v11.1 — corrections fiabilite !</b>\n\n"
             "🛸 SPCX en position reelle : 1 titre @120.75EUR (PV suivie, stop-loss actif)\n"
             "🛸 Surveillance 2 phases : profit >+40% | renfort &lt;112EUR si RSI&lt;45\n"
             "🇺🇸 Session US 15h30-22h00 : SPCX, MSFT et crypto surveilles apres Euronext\n"
