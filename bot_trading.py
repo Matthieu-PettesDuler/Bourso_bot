@@ -988,6 +988,78 @@ def check_messages_telegram():
             analyse_forcee()
             continue
 
+        if tl in ["score", "scores", "rating", "ratings"]:
+            send_telegram("\u23f3 Calcul des scores en cours...")
+            donnees_score = [calcul_indicateurs(t) for t in SEUILS.keys()]
+            donnees_score_ok = {d["ticker"]: d for d in donnees_score if d}
+
+            def barre_score(sa, sv):
+                net = sa - sv
+                pos = int((net + 100) / 20)
+                pos = max(0, min(10, pos))
+                return "\u2593" * pos + "\u2591" * (10 - pos)
+
+            def verdict_score(sa, sv):
+                net = sa - sv
+                if net >= 50:  return "\U0001f7e2 ACHETER"
+                if net >= 20:  return "\U0001f7e1 PLUTOT ACHETER"
+                if net >= -20: return "\u26aa ATTENDRE"
+                if net >= -50: return "\U0001f7e0 PRUDENCE"
+                return "\U0001f534 EVITER"
+
+            lignes_cto = ["<b>\U0001f4ca SCORE PORTEFEUILLE REEL</b>", "\u2501" * 24]
+            for ticker_s, s_cfg in SEUILS.items():
+                if s_cfg.get("type") not in ["CTO", "CTO-US"]: continue
+                if not s_cfg.get("quantite", 0): continue
+                d_s = donnees_score_ok.get(ticker_s)
+                if not d_s: continue
+                sa = d_s.get("score_achat", 0)
+                sv = d_s.get("score_vente", 0)
+                rsi_s = d_s.get("rsi")
+                cours_s = round(d_s["cours"] / EUR_USD_RATE, 2) if s_cfg["type"] == "CTO-US" else d_s["cours"]
+                pv_s = calcul_pv(ticker_s, d_s["cours"]) or 0
+                barre = barre_score(sa, sv)
+                verdict = verdict_score(sa, sv)
+                rsi_txt = " RSI{:.0f}".format(rsi_s) if rsi_s else ""
+                pv_txt = " PV{:+.0f}EUR".format(pv_s) if pv_s else ""
+                ligne = "<b>{}</b> {}EUR{}{}\n[{}] {}\nA:{} V:{}".format(
+                    s_cfg["nom"], cours_s, rsi_txt, pv_txt,
+                    barre, verdict, sa, sv)
+                lignes_cto.append(ligne)
+
+            lignes_watch = ["", "<b>\U0001f52d SURVEILLANCE - Signaux nets</b>", "\u2501" * 24]
+            watch_sig = []
+            for ticker_w, s_w in SEUILS.items():
+                if s_w.get("type") not in ["WATCH", "WATCH-US"]: continue
+                d_w = donnees_score_ok.get(ticker_w)
+                if not d_w: continue
+                sa_w = d_w.get("score_achat", 0)
+                sv_w = d_w.get("score_vente", 0)
+                if abs(sa_w - sv_w) < 20: continue
+                rsi_w = d_w.get("rsi")
+                rsi_wtxt = " RSI{:.0f}".format(rsi_w) if rsi_w else ""
+                watch_sig.append((sa_w - sv_w, ticker_w, s_w["nom"],
+                                  barre_score(sa_w, sv_w), verdict_score(sa_w, sv_w),
+                                  rsi_wtxt, sa_w, sv_w))
+            watch_sig.sort(key=lambda x: -x[0])
+            if watch_sig:
+                for net_w, t_w, nom_w, barre_w, verd_w, rsi_wt, sa_w, sv_w in watch_sig[:8]:
+                    ligne_w = "<b>{}</b>{}\n[{}] {}\nA:{} V:{}".format(
+                        nom_w, rsi_wt, barre_w, verd_w, sa_w, sv_w)
+                    lignes_watch.append(ligne_w)
+            else:
+                lignes_watch.append("Aucun signal net en surveillance.")
+
+            legende = [
+                "",
+                "<i>\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593 = fort signal achat | \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 = fort signal vente</i>",
+                "<i>A = score achat | V = score vente (0-100)</i>"
+            ]
+            msg_score = "\n".join(lignes_cto + lignes_watch + legende)
+            send_telegram(msg_score)
+            continue
+
+
         if "ia" == tl or "actu ia" in tl:
             news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
             ia_themes = [t for t in geo_themes if t in [
