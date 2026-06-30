@@ -1817,8 +1817,9 @@ def analyse_complete(moment="scan", force=False, session="EU"):
             if rsi and rsi > 55:
                 raison_rejet = "RSI {:.1f} > 55 — pas une zone d achat ({})".format(rsi, sig.get("nom","?"))
         if ticker == "TTE.PA" and sig["type"] == "ACHAT":
-            if wti_variation is not None and wti_variation < -1.0:
-                raison_rejet = "WTI {:.1f}% contredit signal achat Total".format(wti_variation)
+            if wti_variation is None or wti_variation <= 0:
+                raison_rejet = "WTI {} ne confirme pas la hausse — regle: achat Total seulement si WTI monte".format(
+                    "{:.1f}%".format(wti_variation) if wti_variation is not None else "indisponible")
         if ticker in ["HO.PA", "AM.PA", "SAF.PA"] and sig["type"] == "ACHAT":
             if rsi and rsi > 30:
                 raison_rejet = "RSI {} trop eleve (>30) pour signal defense".format(round(rsi, 1))
@@ -1865,8 +1866,8 @@ def analyse_complete(moment="scan", force=False, session="EU"):
                 raison_rejet = "RSI > 55 — pas une zone d'achat"
         if d["ticker"] == "TTE.PA":
             wti_var = next((x["variation"] for x in donnees_ok if x["ticker"] == "CL=F"), None)
-            if wti_var is not None and wti_var < -1.0:
-                raison_rejet = "WTI contredit le signal"
+            if wti_var is None or wti_var <= 0:
+                raison_rejet = "WTI ne confirme pas la hausse — regle: achat Total seulement si WTI monte"
         if d["ticker"] in ["HO.PA", "AM.PA", "SAF.PA"]:
             if rsi and rsi > 30:
                 raison_rejet = "RSI trop eleve (>30) pour signal defense"
