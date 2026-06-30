@@ -694,7 +694,6 @@ def decouverte_societes_emergentes():
         nouvelles = []
         for s in societes[:3]:
             if not s.get("ticker") or s["ticker"] in SEUILS: continue
-            # v11 : verifier que le ticker repond sur yfinance avant de le proposer
             try:
                 test = yf.Ticker(s["ticker"]).history(period="5d")
                 if test.empty:
@@ -892,6 +891,24 @@ def send_telegram(message):
             print("[ERREUR Telegram] " + str(e))
 
 # ============================================================
+# SCORING VISUEL PARTAGE — barre + verdict (utilise par 'score'
+# ET par le message du matin/soir analyse_complete)
+# ============================================================
+def barre_score(sa, sv):
+    net = sa - sv
+    pos = int((net + 100) / 20)
+    pos = max(0, min(10, pos))
+    return "▓" * pos + "░" * (10 - pos)
+
+def verdict_score(sa, sv):
+    net = sa - sv
+    if net >= 50:  return "🟢 ACHETER"
+    if net >= 20:  return "🟡 PLUTOT ACHETER"
+    if net >= -20: return "⚪ ATTENDRE"
+    if net >= -50: return "🟠 PRUDENCE"
+    return "🔴 EVITER"
+
+# ============================================================
 # ECOUTE MESSAGES TELEGRAM
 # ============================================================
 last_update_id = None
@@ -989,25 +1006,11 @@ def check_messages_telegram():
             continue
 
         if tl in ["score", "scores", "rating", "ratings"]:
-            send_telegram("\u23f3 Calcul des scores en cours...")
+            send_telegram("⏳ Calcul des scores en cours...")
             donnees_score = [calcul_indicateurs(t) for t in SEUILS.keys()]
             donnees_score_ok = {d["ticker"]: d for d in donnees_score if d}
 
-            def barre_score(sa, sv):
-                net = sa - sv
-                pos = int((net + 100) / 20)
-                pos = max(0, min(10, pos))
-                return "\u2593" * pos + "\u2591" * (10 - pos)
-
-            def verdict_score(sa, sv):
-                net = sa - sv
-                if net >= 50:  return "\U0001f7e2 ACHETER"
-                if net >= 20:  return "\U0001f7e1 PLUTOT ACHETER"
-                if net >= -20: return "\u26aa ATTENDRE"
-                if net >= -50: return "\U0001f7e0 PRUDENCE"
-                return "\U0001f534 EVITER"
-
-            lignes_cto = ["<b>\U0001f4ca SCORE PORTEFEUILLE REEL</b>", "\u2501" * 24]
+            lignes_cto = ["<b>📊 SCORE PORTEFEUILLE REEL</b>", "━" * 24]
             for ticker_s, s_cfg in SEUILS.items():
                 if s_cfg.get("type") not in ["CTO", "CTO-US"]: continue
                 if not s_cfg.get("quantite", 0): continue
@@ -1027,7 +1030,7 @@ def check_messages_telegram():
                     barre, verdict, sa, sv)
                 lignes_cto.append(ligne)
 
-            lignes_watch = ["", "<b>\U0001f52d SURVEILLANCE - Signaux nets</b>", "\u2501" * 24]
+            lignes_watch = ["", "<b>🔭 SURVEILLANCE - Signaux nets</b>", "━" * 24]
             watch_sig = []
             for ticker_w, s_w in SEUILS.items():
                 if s_w.get("type") not in ["WATCH", "WATCH-US"]: continue
@@ -1052,7 +1055,7 @@ def check_messages_telegram():
 
             legende = [
                 "",
-                "<i>\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593\u2593 = fort signal achat | \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 = fort signal vente</i>",
+                "<i>▓▓▓▓▓▓▓▓▓▓ = fort signal achat | ░░░░░░░░░░ = fort signal vente</i>",
                 "<i>A = score achat | V = score vente (0-100)</i>"
             ]
             msg_score = "\n".join(lignes_cto + lignes_watch + legende)
@@ -1249,7 +1252,6 @@ def calcul_indicateurs(ticker):
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="6mo", interval="1d")
-        # v11 : tolerance IPO recente — moins de 26 jours de cotation acceptable
         s_cfg = SEUILS.get(ticker, {})
         min_jours = 5 if s_cfg.get("ipo") else 26
         if len(hist) < min_jours:
@@ -1266,7 +1268,6 @@ def calcul_indicateurs(ticker):
         h = round(float(closes[-2]), 2) if len(closes) > 1 else c
         variation = round((c - h) / h * 100, 2)
 
-        # RSI 14 (ou sur la duree dispo si IPO recente)
         deltas    = [closes[i+1] - closes[i] for i in range(len(closes)-1)]
         gains     = [d if d > 0 else 0 for d in deltas]
         pertes    = [-d if d < 0 else 0 for d in deltas]
@@ -1457,12 +1458,10 @@ def load_memoire():
 
 def save_memoire(m):
     try:
-        # v11.1 : creer le dossier parent si besoin (ex: /data sur volume Railway)
         Path(MEMOIRE_FILE).parent.mkdir(parents=True, exist_ok=True)
         with open(MEMOIRE_FILE, "w") as f:
             json.dump(m, f, ensure_ascii=False)
     except Exception as e:
-        # v11.1 : ne plus avaler l erreur en silence — un echec de sauvegarde explique les resets de cash
         print("[MEMOIRE] ECHEC sauvegarde {} : {}".format(MEMOIRE_FILE, e))
 
 def backtest_decisions():
@@ -1479,7 +1478,6 @@ def backtest_decisions():
         px = d.get("prix", 0)
         if px and data["cours"]:
             perf = round((data["cours"] - px) / px * 100, 1)
-            # v11 : sens du verdict selon l action (une VENTE est bonne si le cours a baisse apres)
             action = d.get("action", "ACHAT").upper()
             if "VENTE" in action:
                 bon = perf < 0
@@ -1579,7 +1577,7 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
         if not d: continue
         s = SEUILS.get(d["ticker"], {})
         if s.get("type") not in ["CTO","CTO-US"]: continue
-        if not s.get("quantite"): continue  # v11.1 : ignorer positions soldees (quantite 0)
+        if not s.get("quantite"): continue
         pv = calcul_pv(d["ticker"], d["cours"]) or 0
         rsi = d.get("rsi","?")
         cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
@@ -1588,8 +1586,6 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     pv_tot = pv_totale(donnees)
 
-    # v11.1 : liste blanche des signaux valides par le moteur deterministe.
-    # Claude ne peut recommander QUE ce qui est dans cette liste — fini les achats inventes.
     if signaux_valides:
         lignes_sig = []
         for sig in signaux_valides:
@@ -1685,7 +1681,11 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.0
+# ANALYSE COMPLETE v11.1 (PATCHED)
+# - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
+# - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
+#   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
+#   apres application des memes filtres anti-contradiction
 # ============================================================
 def analyse_complete(moment="scan", force=False, session="EU"):
     """
@@ -1698,7 +1698,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     now = now_paris.strftime("%d/%m/%Y %H:%M")
     print("\n[" + now + "] Scan signaux ({})...".format(session))
 
-    # v11 : en session US, ne scanner que les tickers pertinents (donnees EU figees)
     if session == "US" and not force:
         tickers_scan = [t for t, v in SEUILS.items()
                         if v.get("type") in ["CTO-US", "WATCH-US", "CRYPTO"] or t in ["GC=F", "CL=F"]]
@@ -1726,7 +1725,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     stop_loss_alertes = check_stop_loss(donnees_ok)
     stop_loss_crypto  = check_stop_loss_crypto(donnees_ok)
 
-    # v11 : alertes SPCX dediees (2 phases)
     spcx_alertes = []
     for d in donnees_ok:
         if d["ticker"] == "SPCX":
@@ -1734,7 +1732,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
             if a:
                 spcx_alertes.append(a)
 
-    # ── Signaux ───────────────────────────────────────────────
+    # ── Signaux (moteur deterministe, sert au prompt Claude + backtest) ──
     signaux_forts = []
     alertes_seuil = []
 
@@ -1742,7 +1740,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         s = SEUILS.get(d["ticker"], {})
         if s["type"] not in ["CTO", "CTO-US"]: continue
 
-        # v11 : sanity check — donnee aberrante = aucun signal
         if donnee_suspecte(d):
             print("[SANITY] {} : donnee suspecte (var {:+.1f}%) — signal ignore".format(
                 d["ticker"], d.get("variation", 0)))
@@ -1754,7 +1751,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         score_a = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
         score_v = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
 
-        # v11.1 : pas de signal VENTE si on ne detient pas le titre (quantite 0 = position soldee)
         detenu = bool(s.get("quantite"))
 
         if score_a >= seuil_score:
@@ -1791,7 +1787,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         if div_warn and "NE PAS VENDRE" in div_warn:
             alertes_seuil.append("💰 " + s["nom"] + " : " + div_warn)
 
-    # ── Filtres anti-contradiction ────────────────────────────
     wti_variation  = next((d["variation"] for d in donnees_ok if d["ticker"] == "CL=F"), None)
 
     signaux_valides = []
@@ -1811,8 +1806,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         if ticker in ["MSFT", "SPCX"] and sig["type"] == "ACHAT":
             if rsi and rsi > 65:
                 raison_rejet = "RSI {} {:.1f} trop eleve (>65)".format(sig["nom"], rsi)
-        # v11 : SPCX vente geree par check_spcx_ipo, pas par le scoring standard
-        # (eviter une alerte VENTE des le jour 2 parce que RSI IPO est mecaniquement haut)
         if ticker == "SPCX" and sig["type"] == "VENTE":
             s_spcx = SEUILS["SPCX"]
             cours_eur = round(sig["cours"] / EUR_USD_RATE, 2)
@@ -1841,8 +1834,66 @@ def analyse_complete(moment="scan", force=False, session="EU"):
 
     signaux_forts = signaux_valides
 
-    # Silence si rien (sauf force ou alerte SPCX)
-    if not signaux_forts and not spcx_alertes and not force:
+    # ── Positions a regarder (WATCH/WATCH-US, verdict ACHETER/PLUTOT ACHETER) ──
+    # Meme logique de scoring + memes filtres anti-contradiction que ci-dessus,
+    # appliques aux valeurs en surveillance plutot qu'au portefeuille detenu.
+    positions_a_regarder = []
+    for d in donnees_ok:
+        s = SEUILS.get(d["ticker"], {})
+        if s.get("type") not in ["WATCH", "WATCH-US"]: continue
+        if donnee_suspecte(d):
+            continue
+
+        geo_bonus = geo_scores.get(d["ticker"], 0)
+        cap_sc, _ = score_capitol(d["ticker"], capitol_trades)
+        sa = min(130, d.get("score_achat",0) + max(0, geo_bonus) + max(0, cap_sc))
+        sv = min(130, d.get("score_vente",0) + max(0, -geo_bonus) + max(0, -cap_sc))
+        rsi = d.get("rsi")
+
+        raison_rejet = None
+        if d["ticker"] == "CAP.PA":
+            if rsi and rsi > 45:
+                raison_rejet = "RSI Capgemini trop eleve"
+        if d["ticker"] == "SU.PA":
+            if rsi and rsi > 50:
+                raison_rejet = "RSI Schneider neutre"
+        if d["ticker"] in ["MSFT", "SPCX"]:
+            if rsi and rsi > 65:
+                raison_rejet = "RSI trop eleve (>65)"
+        if (sa - sv) < 80:
+            if rsi and rsi > 55:
+                raison_rejet = "RSI > 55 — pas une zone d'achat"
+        if d["ticker"] == "TTE.PA":
+            wti_var = next((x["variation"] for x in donnees_ok if x["ticker"] == "CL=F"), None)
+            if wti_var is not None and wti_var < -1.0:
+                raison_rejet = "WTI contredit le signal"
+        if d["ticker"] in ["HO.PA", "AM.PA", "SAF.PA"]:
+            if rsi and rsi > 30:
+                raison_rejet = "RSI trop eleve (>30) pour signal defense"
+
+        if raison_rejet:
+            continue
+
+        verdict = verdict_score(sa, sv)
+        if "ACHETER" not in verdict:  # garde ACHETER et PLUTOT ACHETER, exclut le reste
+            continue
+
+        positions_a_regarder.append({
+            "nom": s["nom"], "ticker": d["ticker"],
+            "sa": sa, "sv": sv, "rsi": rsi,
+            "barre": barre_score(sa, sv), "verdict": verdict
+        })
+
+    positions_a_regarder.sort(key=lambda x: -(x["sa"] - x["sv"]))
+
+    watch_lines = []
+    for p in positions_a_regarder:
+        rsi_txt = " RSI{:.0f}".format(p["rsi"]) if p["rsi"] else ""
+        watch_lines.append("<b>{}</b>{}\n[{}] {}\nA:{} V:{}".format(
+            p["nom"], rsi_txt, p["barre"], p["verdict"], p["sa"], p["sv"]))
+
+    # Silence si rien (sauf force ou alerte SPCX ou position a regarder)
+    if not signaux_forts and not spcx_alertes and not positions_a_regarder and not force:
         print("[SCAN] Aucun signal — silence")
         return
 
@@ -1859,26 +1910,26 @@ def analyse_complete(moment="scan", force=False, session="EU"):
                 f, s["nom"], d["cours"],
                 "+" if d["variation"]>=0 else "", d["variation"], suspect))
 
+    # ── Bloc Portefeuille : format barre + verdict (comme 'score') ──
     ptf_lines = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s["type"] not in ["CTO", "CTO-US"]: continue
         if not s.get("quantite"): continue  # v11.1 : ne pas afficher les positions soldees
-        f = "🟢" if d["variation"] >= 0 else "🔴"
-        cours_aff = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
-        pv_ligne = calcul_pv(d["ticker"], d["cours"])
-        pv_str   = " <i>{:+.0f}EUR</i>".format(pv_ligne) if pv_ligne is not None else ""
-        rsi_str  = rsi_emoji(d.get("rsi"), d.get("rsi_niveau"))
-        geo_b    = geo_scores.get(d["ticker"], 0)
+        geo_b      = geo_scores.get(d["ticker"], 0)
         cap_sc2, _ = score_capitol(d["ticker"], capitol_trades)
-        score_a2 = min(130, d.get("score_achat",0) + max(0,geo_b) + max(0,cap_sc2))
-        score_v2 = min(130, d.get("score_vente",0) + max(0,-geo_b) + max(0,-cap_sc2))
-        sc_str   = score_emoji(score_a2, score_v2)
-        geo_str2 = geo_emoji(d["ticker"], geo_scores)
-        ptf_lines.append("{} <b>{}</b> {}EUR {}{}%{}{}{}{}".format(
-            f, s["nom"], cours_aff,
-            "+" if d["variation"]>=0 else "", d["variation"],
-            pv_str, rsi_str, sc_str, geo_str2))
+        sa = min(130, d.get("score_achat",0) + max(0,geo_b) + max(0,cap_sc2))
+        sv = min(130, d.get("score_vente",0) + max(0,-geo_b) + max(0,-cap_sc2))
+        cours_aff = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
+        pv_ligne  = calcul_pv(d["ticker"], d["cours"])
+        pv_str    = " PV{:+.0f}EUR".format(pv_ligne) if pv_ligne is not None else ""
+        rsi_s     = d.get("rsi")
+        rsi_txt   = " RSI{:.0f}".format(rsi_s) if rsi_s else ""
+        barre     = barre_score(sa, sv)
+        verdict   = verdict_score(sa, sv)
+        ligne = "<b>{}</b> {}EUR{}{}\n[{}] {}\nA:{} V:{}".format(
+            s["nom"], cours_aff, rsi_txt, pv_str, barre, verdict, sa, sv)
+        ptf_lines.append(ligne)
 
     watch_luxe = []
     for d in donnees_ok:
@@ -1914,7 +1965,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     if crypto_lines:
         crypto_bloc = "\n🪙 <b>Crypto :</b>\n" + "\n".join(crypto_lines)
 
-    # Analyse Claude — retry 2x, fallback garanti
     analyse = None
     for tentative in range(2):
         analyse = analyse_claude(donnees_ok, "signal" if not force else "manuel",
@@ -1987,17 +2037,8 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         if lignes_web:
             web_bloc = "\n🌐 <b>Actu :</b>\n" + "\n".join(lignes_web[:3]) + "\n"
 
-    sig_lines_v2 = []
-    for sig in signaux_forts:
-        emoji_s = "🎯" if sig["type"] == "ACHAT" else "⚠️" if sig["type"] == "VENTE" else "🆘"
-        nb = sig.get("nb_actions", 1)
-        sizing = " | <b>{} action{}</b>".format(nb, "s" if nb > 1 else "") if nb > 0 else " | cash insuffisant"
-        sig_lines_v2.append("{} <b>{}</b> {} | {}EUR | RSI:{} | Score:{}{}".format(
-            emoji_s, sig["nom"], sig["type"],
-            sig["cours"], sig["rsi"], sig["score"], sizing))
-
-    emoji_msg = "🚨" if (signaux_forts or spcx_alertes) and not force else "📊"
-    titre = "SIGNAL D'ACTION" if (signaux_forts or spcx_alertes) and not force else "ANALYSE MANUELLE"
+    emoji_msg = "🚨" if (signaux_forts or spcx_alertes or positions_a_regarder) and not force else "📊"
+    titre = "SIGNAL D'ACTION" if (signaux_forts or spcx_alertes or positions_a_regarder) and not force else "ANALYSE MANUELLE"
     if session == "US":
         titre += " (session US)"
 
@@ -2015,8 +2056,8 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         emoji_msg, titre, now,
         sent_emoji, sentiment, pv, cash_dispo,
         " | ".join(macro_lines),
-        "\n".join(ptf_lines),
-        "\n\n<b>Signaux :</b>\n" + "\n".join(sig_lines_v2) + "\n" if sig_lines_v2 else "",
+        "\n\n".join(ptf_lines),
+        "\n\n<b>Positions a regarder :</b>\n" + "\n\n".join(watch_lines) + "\n" if watch_lines else "",
         spcx_bloc,
         geo_bloc, luxe_bloc + "\n" if luxe_bloc else "",
         crypto_bloc + "\n" if crypto_bloc else "",
@@ -2026,7 +2067,6 @@ def analyse_complete(moment="scan", force=False, session="EU"):
 
     send_telegram(msg)
 
-    # v11 : enregistrement AUTOMATIQUE des signaux envoyes → backtest enfin alimente
     for sig in signaux_forts:
         cours_eur = round(sig["cours"]/EUR_USD_RATE, 2) if SEUILS.get(sig["ticker"],{}).get("type")=="CTO-US" else sig["cours"]
         enregistrer_decision(sig["type"], sig["nom"], cours_eur,
@@ -2034,8 +2074,8 @@ def analyse_complete(moment="scan", force=False, session="EU"):
 
     m_mem["dernier_scan"] = now
     save_memoire(m_mem)
-    print("[" + now + "] Message envoye — {} signaux, {} alertes SPCX".format(
-        len(signaux_forts), len(spcx_alertes)))
+    print("[" + now + "] Message envoye — {} signaux, {} alertes SPCX, {} positions a regarder".format(
+        len(signaux_forts), len(spcx_alertes), len(positions_a_regarder)))
 
 
 def marche_ouvert():
@@ -2063,7 +2103,6 @@ def analyse_matin():
     if marche_ouvert():
         analyse_complete(force=False, session="EU")
     elif marche_us_ouvert():
-        # Apres 17h30 Paris : session US seule → scan reduit SPCX/MSFT/crypto
         analyse_complete(force=False, session="US")
     else:
         print("[SCAN] Marches fermes — silence")
@@ -2093,7 +2132,6 @@ def auto_optimisation():
     if not ANTHROPIC_API_KEY:
         return
 
-    # v11 : backtest reel pour evaluer chaque decision
     resultats_backtest = []
     for d in decisions[-20:]:
         ticker = None
@@ -2224,7 +2262,6 @@ Reponds en JSON strict (sans markdown) :
                 "resume_telegram": "Optimisation effectuee (parsing partiel)"
             }
 
-        # v11 : garde-fou supplementaire — pas d ajustement si echantillon < 8
         ajustements_appliques = []
         if len(resultats_backtest) >= 8:
             for ajust in optim.get("ajustements", []):
@@ -2324,7 +2361,6 @@ def auto_optimisation_avec_patch():
 def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
     """Enregistre une decision/signal pour le backtest. v11 : appel automatique a chaque signal envoye."""
     m = load_memoire()
-    # v11 : deduplication — pas deux fois le meme signal le meme jour
     date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
     for d in m.get("decisions", []):
         if d.get("date") == date_str and d.get("valeur") == valeur and d.get("action") == action:
@@ -2380,6 +2416,7 @@ if __name__ == "__main__":
             "💰 Cash dynamique : tape 'cash 881.67' pour mettre a jour\n"
             "📊 Signaux auto-enregistres → backtest et auto-optim enfin alimentes\n"
             "🧪 Sanity check : donnees aberrantes flaggees, plus de faux signaux type WTI\n"
+            "📋 Portefeuille avec barre+verdict, positions a regarder filtrees ACHETER/PLUTOT ACHETER\n"
             "🤖 Modele : claude-sonnet-4-6\n\n"
             "Commandes : 'analyse' | 'spacex' | 'cash X' | 'achat NOM QTE PRIX' | 'stop loss' | 'backtest'"
         )
