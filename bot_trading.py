@@ -2,7 +2,7 @@
 """
 Agent Trading Matthieu v11.1 — corrections fiabilite
 Nouveautes vs v10.8 :
-- SPCX integre en position reelle CTO-US : 1 titre @ 120.75EUR (vente partielle 12/06, +25.72EUR realises)
+- SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
 - Scan US dedie 15h30-22h00 Paris (SPCX + MSFT + crypto) — le bot ne dort plus a 17h30
 - Cash dynamique : commande Telegram "cash 881" — fini le 64EUR code en dur dans les prompts
@@ -32,7 +32,7 @@ MEMOIRE_FILE      = os.environ.get("MEMOIRE_FILE", "/data/memoire_matthieu.json"
 BOT_FILE_LOCAL    = "/app/bot_trading.py"
 PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
-CASH_DEFAULT      = 881.67   # Cash au 12/06/2026 apres vente 1 SPCX — modifiable via Telegram "cash X"
+CASH_DEFAULT      = 319.15   # Cash au 12/06/2026 apres vente 1 SPCX — modifiable via Telegram "cash X"
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
@@ -61,24 +61,24 @@ def protection_dividende(ticker):
 
 # ============================================================
 # PORTEFEUILLE REEL — MIS A JOUR 12/06/2026
-# Vente partielle SPCX : 2 titres alloues IPO @120.75, 1 vendu @~146.5 (+25.72EUR)
+# Vente partielle SPCX : 2 titres alloues IPO @117.03, 1 vendu @~146.5 (+25.72EUR)
 # ============================================================
 SEUILS = {
     # CTO — Positions reelles
     "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 83, "px_revient": 10.70},
     "CAP.PA":  {"nom": "Capgemini",         "achat": 85.00, "vente": 130.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 0,  "px_revient": 0},
     "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 12, "px_revient": 78.84},
-    "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 3,  "px_revient": 85.51},
+    "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
     "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 2,  "px_revient": 289.87},
-    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 9,  "px_revient": 240.99},
+    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 10, "px_revient": 238.60},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 3,  "px_revient": 317.02},
     "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 2,  "px_revient": 270.33},
-    "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 1,  "px_revient": 325.84},
+    "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 2,  "px_revient": 330.82},
     # SPCX — POSITION REELLE depuis IPO 12/06/2026
-    # 2 titres alloues @120.75EUR, 1 vendu 12/06 @~146.5EUR (+25.72EUR realises)
+    # 2 titres alloues @117.03EUR, 1 vendu 12/06 @~146.5EUR (+25.72EUR realises)
     # achat=112EUR : zone de renforcement si repli post-IPO | vente=200EUR : objectif long terme
-    "SPCX":    {"nom": "SpaceX",            "achat": 112.00,"vente": 200.00,"type": "CTO-US",  "secteur": "Spatial/IA",   "quantite": 1,  "px_revient": 120.75, "ipo": True, "ipo_date": "2026-06-12"},
+    "SPCX":    {"nom": "SpaceX",            "achat": 112.00,"vente": 200.00,"type": "CTO-US",  "secteur": "Spatial/IA",   "quantite": 1,  "px_revient": 117.03, "ipo": True, "ipo_date": "2026-06-12"},
     # Surveillance
     "DSY.PA":  {"nom": "Dassault Systemes", "achat": 15.00, "vente": 38.00, "type": "WATCH",   "secteur": "Tech/IA"},
     "EN.PA":   {"nom": "Edenred",           "achat": 40.00, "vente": 60.00, "type": "WATCH",   "secteur": "Fintech"},
@@ -137,7 +137,7 @@ CORRELATIONS = {
     "CETH.AS": "CS Ethereum ETP = infra DeFi, staking inclus",
     "SLNC.AS": "CS Solana ETP = beta tres eleve",
     "CXRP.AS": "CS XRP ETP = paiements institutionnels",
-    "SPCX":   ("SpaceX cotee 12/06/2026 (IPO 135USD, +25% jour 1). POSITION : 1 titre @120.75EUR "
+    "SPCX":   ("SpaceX cotee 12/06/2026 (IPO 135USD, +25% jour 1). POSITION : 1 titre @117.03EUR "
                "(vente partielle 12/06 @146.5EUR, +25.72EUR realises, allocation 2/7). "
                "Starlink = 69% du CA. xAI fusionne fev 2026. 18712 BTC en tresorerie. "
                "Soutien MSCI inclusion indices 30-90j post-IPO. "
@@ -1635,7 +1635,7 @@ REGLES ABSOLUES INVIOLABLES :
    la seule reponse possible est "Rien a faire".
 
 POSITIONS SPECIALES :
-- SPCX (SpaceX) : 1 titre @120.75EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
+- SPCX (SpaceX) : 1 titre @117.03EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
 
 REGLES DE RAISONNEMENT (dans cet ordre) :
 1. Contradictions d abord : defense RSI>65 = pas d achat | TotalEnergies = achat seulement si WTI monte ET RSI<40 | geo seul = invalide
@@ -2411,7 +2411,7 @@ if __name__ == "__main__":
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
             "🚀 <b>Agent Trading v11.1 — corrections fiabilite !</b>\n\n"
-            "🛸 SPCX en position reelle : 1 titre @120.75EUR (PV suivie, stop-loss actif)\n"
+            "🛸 SPCX en position reelle : 1 titre @117.03EUR (PV suivie, stop-loss actif)\n"
             "🛸 Surveillance 2 phases : profit >+40% | renfort &lt;112EUR si RSI&lt;45\n"
             "🇺🇸 Session US 15h30-22h00 : SPCX, MSFT et crypto surveilles apres Euronext\n"
             "💰 Cash dynamique : tape 'cash 881.67' pour mettre a jour\n"
