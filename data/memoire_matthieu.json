@@ -1,5 +1,14 @@
 {
-  "decisions": [],
+  "decisions": [
+    {
+      "date": "28/07/2026",
+      "action": "ACHAT",
+      "valeur": "SpaceX",
+      "prix": 99.79,
+      "rsi_signal": 18.5,
+      "score_signal": 75
+    }
+  ],
   "stats": {
     "bonnes": 0,
     "mauvaises": 0
