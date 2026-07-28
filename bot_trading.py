@@ -32,14 +32,14 @@ MEMOIRE_FILE      = os.environ.get("MEMOIRE_FILE", "/data/memoire_matthieu.json"
 BOT_FILE_LOCAL    = "/app/bot_trading.py"
 PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
-CASH_DEFAULT      = 319.15   # Cash au 12/06/2026 apres vente 1 SPCX — modifiable via Telegram "cash X"
+CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifiable via Telegram "cash X"
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
 # DIVIDENDES — Protection avant detachement
 # ============================================================
 DIVIDENDES = {
-    "ORA.PA": {"date_detachement": "2026-06-10", "montant_net": 100,  "note": "Dividende Orange ~100EUR nets juin 2026 — DETACHE, verifier versement sur le compte"},
+    # "ORA.PA" : dividende retire — position Orange soldee le 01/07/2026
     "SU.PA":  {"date_detachement": "2026-05-11", "montant_net": 8.80, "note": "Dividende Schneider 4.20EUR/action (x2 = ~8.40EUR nets)"},
 }
 
@@ -60,20 +60,22 @@ def protection_dividende(ticker):
     return None
 
 # ============================================================
-# PORTEFEUILLE REEL — MIS A JOUR 12/06/2026
-# Vente partielle SPCX : 2 titres alloues IPO @117.03, 1 vendu @~146.5 (+25.72EUR)
+# PORTEFEUILLE REEL — MIS A JOUR 28/07/2026 (releve Boursobank)
+# Historique : Orange et Safran soldees 01/07/2026 | BNP, Capgemini, Airbus soldees anterieurement
+# Renforts juillet : TTE 12->33, Thales 10->14, Dassault 3->6, Schneider 2->3
+# SPCX : 2 titres alloues IPO @117.03, 1 vendu 12/06 @~146.5 (+25.72EUR realises)
 # ============================================================
 SEUILS = {
     # CTO — Positions reelles
-    "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 83, "px_revient": 10.70},
+    "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
     "CAP.PA":  {"nom": "Capgemini",         "achat": 85.00, "vente": 130.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 0,  "px_revient": 0},
-    "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 12, "px_revient": 78.84},
+    "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 33, "px_revient": 72.23},
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
-    "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 2,  "px_revient": 289.87},
-    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 10, "px_revient": 238.60},
-    "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 3,  "px_revient": 317.02},
-    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 2,  "px_revient": 270.33},
+    "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
+    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 14, "px_revient": 235.59},
+    "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56},
+    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
     "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 2,  "px_revient": 330.82},
     # SPCX — POSITION REELLE depuis IPO 12/06/2026
     # 2 titres alloues @117.03EUR, 1 vendu 12/06 @~146.5EUR (+25.72EUR realises)
@@ -114,11 +116,11 @@ CORRELATIONS = {
     "TTE.PA": "TotalEnergies suit le WTI a ~85% de correlation",
     "BNP.PA": "BNP monte quand BCE baisse les taux",
     "AIR.PA": "Airbus chute lors des guerres commerciales US/EU",
-    "SAF.PA": "Safran monte avec les budgets defense europeens",
+    "SAF.PA": "Safran monte avec les budgets defense europeens — position SOLDEE 01/07/2026 (quantite 0), en surveillance",
     "HO.PA":  "Thales beneficie du rearmement europeen",
     "AM.PA":  "Dassault Aviation liee au Rafale et budget defense",
     "SU.PA":  "Schneider profite de l'electrification et des data centers IA",
-    "ORA.PA": "Orange resiste en crise, dividende stable — NE PAS VENDRE avant juillet 2026",
+    "ORA.PA": "Orange resiste en crise, dividende stable — position SOLDEE 01/07/2026 (quantite 0), en surveillance",
     "CAP.PA": "Capgemini suit la demande IA/IT — position soldee (quantite 0), en surveillance",
     "MSFT":   "Microsoft beneficie de l'IA via Azure et OpenAI — ordre limite obligatoire",
     "PLTR":   "Palantir = IA defense, monte avec contrats gouvernement US et rearmement",
@@ -829,7 +831,7 @@ def build_system_prompt():
     return ("Agent financier de Matthieu (flat tax 30%, horizon 1 an, risque modere-eleve). "
             "Positions : " + " | ".join(positions) +
             ". Cash : {:.0f}EUR. ".format(get_cash()) +
-            "Regles : Orange NE PAS VENDRE avant juillet 2026. Microsoft et SPCX = ordre limite. "
+            "Regles : Microsoft et SPCX = ordre limite obligatoire. "
             "SPCX = position post-IPO, prise de profit >+40%, renfort <112EUR si RSI<45. "
             "Reponds en max 80 mots, chiffres precis, jamais de fraction d action.")
 
@@ -1448,21 +1450,94 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
+# --- Persistance GitHub de la memoire (v11.2) -------------------------------
+# /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
+# La memoire (cash, decisions, stats) est donc versionnee dans le repo.
+MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
+MEMOIRE_PERSISTANTE = None   # None = inconnu | True = GitHub OK | False = local seul
+
+def _memoire_github_get():
+    """Retourne (dict, sha) ou (None, None)."""
+    if not GITHUB_TOKEN:
+        return None, None
+    try:
+        import base64
+        url = "https://api.github.com/repos/{}/contents/{}".format(GITHUB_REPO, MEMOIRE_GITHUB)
+        r = requests.get(url, headers={
+            "Authorization": "token " + GITHUB_TOKEN,
+            "Accept": "application/vnd.github.v3+json"
+        }, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            contenu = base64.b64decode(data.get("content", "")).decode("utf-8")
+            return json.loads(contenu), data.get("sha", "")
+        if r.status_code == 404:
+            print("[MEMOIRE GH] Aucune memoire sur GitHub, initialisation.")
+            return None, None
+        print("[MEMOIRE GH] GET {} : {}".format(r.status_code, r.text[:150]))
+    except Exception as e:
+        print("[MEMOIRE GH] GET " + str(e))
+    return None, None
+
+def _memoire_github_put(m):
+    global MEMOIRE_PERSISTANTE
+    if not GITHUB_TOKEN:
+        MEMOIRE_PERSISTANTE = False
+        return False
+    try:
+        import base64
+        _, sha = _memoire_github_get()
+        url = "https://api.github.com/repos/{}/contents/{}".format(GITHUB_REPO, MEMOIRE_GITHUB)
+        contenu = json.dumps(m, ensure_ascii=False, indent=2)
+        payload = {
+            "message": "memoire bot : cash {:.2f}EUR".format(
+                m.get("params", {}).get("cash_dispo", 0)),
+            "content": base64.b64encode(contenu.encode("utf-8")).decode("utf-8"),
+        }
+        if sha:
+            payload["sha"] = sha
+        r = requests.put(url, json=payload, headers={
+            "Authorization": "token " + GITHUB_TOKEN,
+            "Accept": "application/vnd.github.v3+json"
+        }, timeout=15)
+        if r.status_code in [200, 201]:
+            MEMOIRE_PERSISTANTE = True
+            return True
+        print("[MEMOIRE GH] PUT {} : {}".format(r.status_code, r.text[:150]))
+    except Exception as e:
+        print("[MEMOIRE GH] PUT " + str(e))
+    MEMOIRE_PERSISTANTE = False
+    return False
+
 def load_memoire():
+    """GitHub d abord (persistant), puis fichier local, puis memoire vierge."""
+    global MEMOIRE_PERSISTANTE
+    m, _ = _memoire_github_get()
+    if m is not None:
+        MEMOIRE_PERSISTANTE = True
+        return m
     try:
         if Path(MEMOIRE_FILE).exists():
             with open(MEMOIRE_FILE) as f:
+                print("[MEMOIRE] Chargee depuis le fichier local (non persistant).")
                 return json.load(f)
     except: pass
     return {"decisions": [], "stats": {"bonnes": 0, "mauvaises": 0}}
 
 def save_memoire(m):
+    """Ecrit sur GitHub (persistant) ET en local (filet de securite)."""
+    ok_local = False
     try:
         Path(MEMOIRE_FILE).parent.mkdir(parents=True, exist_ok=True)
         with open(MEMOIRE_FILE, "w") as f:
             json.dump(m, f, ensure_ascii=False)
+        ok_local = True
     except Exception as e:
-        print("[MEMOIRE] ECHEC sauvegarde {} : {}".format(MEMOIRE_FILE, e))
+        print("[MEMOIRE] ECHEC sauvegarde locale {} : {}".format(MEMOIRE_FILE, e))
+    ok_gh = _memoire_github_put(m)
+    if not ok_gh:
+        print("[MEMOIRE] ⚠ NON PERSISTANT : la memoire sera perdue au prochain redeploy.")
+    return ok_gh or ok_local
 
 def backtest_decisions():
     m = load_memoire()
@@ -1624,7 +1699,7 @@ REGLES ABSOLUES INVIOLABLES :
 1. JAMAIS proposer d achat si cash ({cash:.0f}EUR) < prix de l action.
 2. JAMAIS de fraction d action. Uniquement des entiers : 1, 2 ou 3.
 3. JAMAIS proposer achat si RSI > 65. RSI > 70 = SURACHAT. RSI < 30 = SURVENTE.
-4. JAMAIS vendre Orange avant juillet 2026.
+4. JAMAIS proposer d achat sur une ligne soldee (quantite 0) : Orange, Safran, BNP, Capgemini, Airbus.
 5. Prix toujours en EUR. Ordre limite obligatoire pour Microsoft et SPCX.
 6. Un score geo positif NE suffit JAMAIS seul. Achat autorise UNIQUEMENT si RSI < 40.
    Si RSI >= 40, l achat est INVALIDE meme avec un geo +30 (ex : RSI 50 + geo +30 = INVALIDE).
