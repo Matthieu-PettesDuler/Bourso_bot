@@ -1,8 +1,20 @@
 {
-  "decisions": [],
+  "decisions": [
+    {
+      "date": "28/07/2026",
+      "action": "ACHAT",
+      "valeur": "SpaceX",
+      "prix": 99.79,
+      "rsi_signal": 18.5,
+      "score_signal": 75
+    }
+  ],
   "stats": {
     "bonnes": 0,
     "mauvaises": 0
   },
-  "dernier_scan": "28/07/2026 09:29"
+  "dernier_scan": "28/07/2026 09:28",
+  "params": {
+    "cash_dispo": 79.74
+  }
 }
