@@ -7,6 +7,14 @@
       "prix": 99.79,
       "rsi_signal": 18.5,
       "score_signal": 75
+    },
+    {
+      "date": "29/07/2026",
+      "action": "ACHAT",
+      "valeur": "Schneider Electric",
+      "prix": 257.3,
+      "rsi_signal": 34.2,
+      "score_signal": 50
     }
   ],
   "stats": {
