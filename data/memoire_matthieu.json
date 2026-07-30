@@ -23,6 +23,14 @@
       "prix": 99.63,
       "rsi_signal": 18.5,
       "score_signal": 75
+    },
+    {
+      "date": "30/07/2026",
+      "action": "ACHAT",
+      "valeur": "SpaceX",
+      "prix": 98.25,
+      "rsi_signal": 16.3,
+      "score_signal": 75
     }
   ],
   "stats": {
