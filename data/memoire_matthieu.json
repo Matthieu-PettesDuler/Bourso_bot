@@ -42,11 +42,11 @@
     },
     {
       "date": "31/07/2026",
-      "action": "VENTE",
-      "valeur": "Microsoft",
-      "prix": 391.68,
-      "rsi_signal": 73.6,
-      "score_signal": 55
+      "action": "ACHAT",
+      "valeur": "SpaceX",
+      "prix": 97.42,
+      "rsi_signal": 18.3,
+      "score_signal": 75
     }
   ],
   "stats": {
