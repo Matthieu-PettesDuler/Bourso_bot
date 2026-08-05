@@ -87,29 +87,13 @@
       "prix": 264.3,
       "rsi_signal": 86.4,
       "score_signal": 65
-    },
-    {
-      "date": "05/08/2026",
-      "action": "VENTE",
-      "valeur": "Schneider Electric",
-      "prix": 300.35,
-      "rsi_signal": 70.1,
-      "score_signal": 55
-    },
-    {
-      "date": "05/08/2026",
-      "action": "VENTE",
-      "valeur": "Microsoft",
-      "prix": 425.4,
-      "rsi_signal": 79.3,
-      "score_signal": 70
     }
   ],
   "stats": {
     "bonnes": 0,
     "mauvaises": 0
   },
-  "dernier_scan": "05/08/2026 15:15",
+  "dernier_scan": "05/08/2026 15:45",
   "params": {
     "cash_dispo": 79.74
   },
