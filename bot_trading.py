@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.7 — dialogue fiabilise
+Agent Trading Matthieu v11.8 — filet de securite global
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,18 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.7 :
+Nouveautes v11.8 :
+- FILET DE SECURITE GLOBAL : tout le traitement d un message (les ~30 commandes
+  et le dialogue libre) est desormais enveloppe dans un seul try/except. Avant
+  ce patch, une exception NON PREVUE n importe ou dans cette chaine faisait
+  planter le process entier — plus AUCUNE reponse, sur AUCUNE valeur, jusqu au
+  redemarrage Railway. Teste : une panne simulee dans une zone auparavant non
+  protegee (get_news_et_geo) est desormais capturee sans arreter le bot.
+- Verifie specifiquement : "sanofi" et "safran" produisent un rendu correct,
+  y compris quand yfinance echoue completement (retour "Donnees indisponibles"
+  au lieu du silence).
+
+Heritage v11.7 :
 - Le dialogue libre connaissait uniquement le portefeuille detenu : toute
   valeur de watchlist (Sanofi, Pernod...) etait "hors univers suivi" a ses
   yeux et il inventait un prix des qu on lui demandait un chiffrage. Corrige :
@@ -87,7 +98,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.7 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.8 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -190,7 +201,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.7 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.8 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -213,7 +224,7 @@ SEUILS = {
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
     "PSP5.PA": {"nom": "ETF Small Caps PEA","achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Small Caps"},
 
-    # ---- BRIQUES A BETA ELEVE v11.7 ----
+    # ---- BRIQUES A BETA ELEVE v11.8 ----
     # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
     # de filtres. Ces supports montent ET baissent plus vite que le World.
     "PANX.PA": {"nom": "ETF Nasdaq 100 PEA", "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF Tech",  "beta": 1.3},
@@ -609,7 +620,7 @@ def github_push_file(nouveau_contenu, message_commit, sha):
 
 
 # ============================================================
-# GARDE-FOUS DU SELF-PATCH v11.7
+# GARDE-FOUS DU SELF-PATCH v11.8
 #
 # auto_patch() peut reecrire n importe quelle ligne et pousser sur GitHub,
 # ou Railway redeploie automatiquement. Sans verrou, une auto-optimisation
@@ -881,7 +892,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.7 : taille pilotee par le profil de risque.
+    """v11.8 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -1127,7 +1138,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
         cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], cours_eur, pv))
 
-    # v11.7 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
+    # v11.8 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
     # on va chercher son cours REEL et on l injecte explicitement. Sans ca,
     # le modele n a que le portefeuille detenu et invente un prix.
     tickers_cites = detecter_tickers_mentionnes(question_user)
@@ -1206,11 +1217,11 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.7 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.8 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
 def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
-    """v11.7 : exposition CONSOLIDEE sur les trois enveloppes.
+    """v11.8 : exposition CONSOLIDEE sur les trois enveloppes.
 
     Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
     Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
@@ -1273,7 +1284,7 @@ def nom_ligne(cle):
 
 
 # ============================================================
-# MOTEUR DE RECOMMANDATION v11.7
+# MOTEUR DE RECOMMANDATION v11.8
 #
 # Une recommandation honnete nomme ses propres faiblesses. Ce moteur rend
 # toujours les deux colonnes — POUR et CONTRE — meme quand le verdict est net.
@@ -1490,7 +1501,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.7 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.8 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1525,7 +1536,7 @@ def fiche_valeur(texte):
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
-    cash = get_cash(env)          # v11.7 : cash de la bonne enveloppe, jamais la somme
+    cash = get_cash(env)          # v11.8 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1618,7 +1629,7 @@ def fiche_valeur(texte):
             blocages.append("exposition {} passerait a {:.0f}% > plafond {:.0f}%".format(
                 sect, poids_apres, prof["max_secteur"] * 100))
 
-    # v11.7 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
+    # v11.8 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
     if nb > 0 and not blocages and base and (cours_eur * nb / base * 100) < 2:
         L.append("⚠️ {:.1f}% du patrimoine : trop petit pour diversifier quoi que ce soit.".format(
             cours_eur * nb / base * 100))
@@ -1703,435 +1714,450 @@ def check_messages_telegram():
 
         tl = text.lower().strip()
 
-        # v11 : mise a jour cash — "cash 881" ou "cash 881.67"
-        if tl.startswith("cash"):
-            parts = tl.split()
-            # "cash pea 1511.12" ou "cash 79.74"
-            if len(parts) >= 3 and parts[1] in ["pea", "cto"]:
-                try:
-                    env = parts[1].upper()
-                    nouveau = set_cash(parts[2].replace(",", "."), env)
-                    send_telegram("💰 Cash {} mis a jour : <b>{:.2f}EUR</b>".format(env, nouveau))
-                except ValueError:
-                    send_telegram("Format : cash pea 1511.12")
-            elif len(parts) >= 2:
-                try:
-                    nouveau = set_cash(parts[1].replace(",", "."), "CTO")
-                    send_telegram("💰 Cash CTO mis a jour : <b>{:.2f}EUR</b>".format(nouveau))
-                except ValueError:
-                    send_telegram("Format : cash 79.74  |  cash pea 1511.12")
-            else:
-                send_telegram(
-                    "💰 Cash CTO : <b>{:.2f}EUR</b>\n"
-                    "💰 Cash PEA : <b>{:.2f}EUR</b>\n"
-                    "<i>Poches etanches — le cash PEA ne peut pas acheter sur le CTO.</i>\n"
-                    "Modifier : cash 79.74 | cash pea 1511.12".format(
-                        get_cash("CTO"), get_cash("PEA")))
-            continue
-
-        # v11 : statut SPCX dedie
-        if "spacex" in tl or "spcx" in tl:
-            d = calcul_indicateurs("SPCX")
-            if d:
-                s = SEUILS["SPCX"]
-                cours_eur = round(d["cours"]/EUR_USD_RATE, 2)
-                pv = calcul_pv("SPCX", d["cours"]) or 0
-                pv_pct = (cours_eur - s["px_revient"]) / s["px_revient"] * 100
-                alerte = check_spcx_ipo(d) or "Pas d alerte active."
-                send_telegram(
-                    "🛸 <b>SPCX</b> : {}USD / {}EUR ({:+.1f}%)\n"
-                    "Position : {} titre @ {}EUR | PV : {:+.0f}EUR ({:+.1f}%)\n"
-                    "RSI : {} | Renfort si <{}EUR + RSI<{} | Profit si >+{}%\n"
-                    "{}".format(
-                        d["cours"], cours_eur, d["variation"],
-                        s["quantite"], s["px_revient"], pv, pv_pct,
-                        d.get("rsi","?"), s["achat"], SPCX_RENFORT_RSI, SPCX_PROFIT_PCT,
-                        alerte))
-            else:
-                send_telegram("🛸 SPCX : donnees indisponibles (cotation recente, yfinance peut prendre quelques jours).")
-            continue
-
-        if "backtest" in tl:
-            resultats = backtest_decisions()
-            if not resultats:
-                send_telegram("Pas encore assez de decisions memorisees.")
+        # ============================================================
+        # FILET DE SECURITE GLOBAL v11.8
+        # Toute exception non prevue dans le traitement d un message est
+        # desormais capturee ICI. Avant ce patch, une exception a cet
+        # endroit remontait jusqu au 'while True' de __main__ et faisait
+        # planter tout le process : plus AUCUN message ne recevait de
+        # reponse, sur AUCUNE valeur, jusqu au redemarrage Railway.
+        # ============================================================
+        try:
+            # v11 : mise a jour cash — "cash 881" ou "cash 881.67"
+            if tl.startswith("cash"):
+                parts = tl.split()
+                # "cash pea 1511.12" ou "cash 79.74"
+                if len(parts) >= 3 and parts[1] in ["pea", "cto"]:
+                    try:
+                        env = parts[1].upper()
+                        nouveau = set_cash(parts[2].replace(",", "."), env)
+                        send_telegram("💰 Cash {} mis a jour : <b>{:.2f}EUR</b>".format(env, nouveau))
+                    except ValueError:
+                        send_telegram("Format : cash pea 1511.12")
+                elif len(parts) >= 2:
+                    try:
+                        nouveau = set_cash(parts[1].replace(",", "."), "CTO")
+                        send_telegram("💰 Cash CTO mis a jour : <b>{:.2f}EUR</b>".format(nouveau))
+                    except ValueError:
+                        send_telegram("Format : cash 79.74  |  cash pea 1511.12")
+                else:
+                    send_telegram(
+                        "💰 Cash CTO : <b>{:.2f}EUR</b>\n"
+                        "💰 Cash PEA : <b>{:.2f}EUR</b>\n"
+                        "<i>Poches etanches — le cash PEA ne peut pas acheter sur le CTO.</i>\n"
+                        "Modifier : cash 79.74 | cash pea 1511.12".format(
+                            get_cash("CTO"), get_cash("PEA")))
                 continue
-            lignes = ["📊 <b>Backtest de tes decisions :</b>"]
-            for r in resultats:
-                lignes.append("{} {} | {} | {:+.1f}%".format(
-                    r["verdict"], r["valeur"], r["date"], r["perf"]))
-            send_telegram("\n".join(lignes))
-            continue
 
-        if "geo" in tl or "geopolitique" in tl:
-            news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
-            msg_geo = formatter_geo_telegram(geo_scores, geo_themes)
-            send_telegram("🌍 <b>Contexte geopolitique actuel :</b>\n" + msg_geo)
-            continue
+            # v11 : statut SPCX dedie
+            if "spacex" in tl or "spcx" in tl:
+                d = calcul_indicateurs("SPCX")
+                if d:
+                    s = SEUILS["SPCX"]
+                    cours_eur = round(d["cours"]/EUR_USD_RATE, 2)
+                    pv = calcul_pv("SPCX", d["cours"]) or 0
+                    pv_pct = (cours_eur - s["px_revient"]) / s["px_revient"] * 100
+                    alerte = check_spcx_ipo(d) or "Pas d alerte active."
+                    send_telegram(
+                        "🛸 <b>SPCX</b> : {}USD / {}EUR ({:+.1f}%)\n"
+                        "Position : {} titre @ {}EUR | PV : {:+.0f}EUR ({:+.1f}%)\n"
+                        "RSI : {} | Renfort si <{}EUR + RSI<{} | Profit si >+{}%\n"
+                        "{}".format(
+                            d["cours"], cours_eur, d["variation"],
+                            s["quantite"], s["px_revient"], pv, pv_pct,
+                            d.get("rsi","?"), s["achat"], SPCX_RENFORT_RSI, SPCX_PROFIT_PCT,
+                            alerte))
+                else:
+                    send_telegram("🛸 SPCX : donnees indisponibles (cotation recente, yfinance peut prendre quelques jours).")
+                continue
 
-        if tl in ["analyse", "analyze", "scan", "status"]:
-            analyse_forcee()
-            continue
+            if "backtest" in tl:
+                resultats = backtest_decisions()
+                if not resultats:
+                    send_telegram("Pas encore assez de decisions memorisees.")
+                    continue
+                lignes = ["📊 <b>Backtest de tes decisions :</b>"]
+                for r in resultats:
+                    lignes.append("{} {} | {} | {:+.1f}%".format(
+                        r["verdict"], r["valeur"], r["date"], r["perf"]))
+                send_telegram("\n".join(lignes))
+                continue
 
-        if tl in ["score", "scores", "rating", "ratings"]:
-            send_telegram("⏳ Calcul des scores en cours...")
-            donnees_score = [calcul_indicateurs(t) for t in SEUILS.keys()]
-            donnees_score_ok = {d["ticker"]: d for d in donnees_score if d}
+            if "geo" in tl or "geopolitique" in tl:
+                news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
+                msg_geo = formatter_geo_telegram(geo_scores, geo_themes)
+                send_telegram("🌍 <b>Contexte geopolitique actuel :</b>\n" + msg_geo)
+                continue
 
-            lignes_cto = ["<b>📊 SCORE PORTEFEUILLE REEL</b>", "━" * 24]
-            for ticker_s, s_cfg in SEUILS.items():
-                if s_cfg.get("type") not in ["CTO", "CTO-US"]: continue
-                if not s_cfg.get("quantite", 0): continue
-                d_s = donnees_score_ok.get(ticker_s)
-                if not d_s: continue
-                sa = d_s.get("score_achat", 0)
-                sv = d_s.get("score_vente", 0)
-                rsi_s = d_s.get("rsi")
-                cours_s = round(d_s["cours"] / EUR_USD_RATE, 2) if s_cfg["type"] == "CTO-US" else d_s["cours"]
-                pv_s = calcul_pv(ticker_s, d_s["cours"]) or 0
-                barre = barre_score(sa, sv)
-                verdict = verdict_score(sa, sv)
-                rsi_txt = " RSI{:.0f}".format(rsi_s) if rsi_s else ""
-                pv_txt = " PV{:+.0f}EUR".format(pv_s) if pv_s else ""
-                ligne = "<b>{}</b> {}EUR{}{}\n[{}] {}\nA:{} V:{}".format(
-                    s_cfg["nom"], cours_s, rsi_txt, pv_txt,
-                    barre, verdict, sa, sv)
-                lignes_cto.append(ligne)
+            if tl in ["analyse", "analyze", "scan", "status"]:
+                analyse_forcee()
+                continue
 
-            lignes_watch = ["", "<b>🔭 SURVEILLANCE - Signaux nets</b>", "━" * 24]
-            watch_sig = []
-            for ticker_w, s_w in SEUILS.items():
-                if s_w.get("type") not in ["WATCH", "WATCH-US"]: continue
-                d_w = donnees_score_ok.get(ticker_w)
-                if not d_w: continue
-                sa_w = d_w.get("score_achat", 0)
-                sv_w = d_w.get("score_vente", 0)
-                if abs(sa_w - sv_w) < 20: continue
-                rsi_w = d_w.get("rsi")
-                rsi_wtxt = " RSI{:.0f}".format(rsi_w) if rsi_w else ""
-                watch_sig.append((sa_w - sv_w, ticker_w, s_w["nom"],
-                                  barre_score(sa_w, sv_w), verdict_score(sa_w, sv_w),
-                                  rsi_wtxt, sa_w, sv_w))
-            watch_sig.sort(key=lambda x: -x[0])
-            if watch_sig:
-                for net_w, t_w, nom_w, barre_w, verd_w, rsi_wt, sa_w, sv_w in watch_sig[:8]:
-                    ligne_w = "<b>{}</b>{}\n[{}] {}\nA:{} V:{}".format(
-                        nom_w, rsi_wt, barre_w, verd_w, sa_w, sv_w)
-                    lignes_watch.append(ligne_w)
-            else:
-                lignes_watch.append("Aucun signal net en surveillance.")
+            if tl in ["score", "scores", "rating", "ratings"]:
+                send_telegram("⏳ Calcul des scores en cours...")
+                donnees_score = [calcul_indicateurs(t) for t in SEUILS.keys()]
+                donnees_score_ok = {d["ticker"]: d for d in donnees_score if d}
 
-            legende = [
-                "",
-                "<i>▓▓▓▓▓▓▓▓▓▓ = fort signal achat | ░░░░░░░░░░ = fort signal vente</i>",
-                "<i>A = score achat | V = score vente (0-100)</i>"
-            ]
-            msg_score = "\n".join(lignes_cto + lignes_watch + legende)
-            send_telegram(msg_score)
-            continue
+                lignes_cto = ["<b>📊 SCORE PORTEFEUILLE REEL</b>", "━" * 24]
+                for ticker_s, s_cfg in SEUILS.items():
+                    if s_cfg.get("type") not in ["CTO", "CTO-US"]: continue
+                    if not s_cfg.get("quantite", 0): continue
+                    d_s = donnees_score_ok.get(ticker_s)
+                    if not d_s: continue
+                    sa = d_s.get("score_achat", 0)
+                    sv = d_s.get("score_vente", 0)
+                    rsi_s = d_s.get("rsi")
+                    cours_s = round(d_s["cours"] / EUR_USD_RATE, 2) if s_cfg["type"] == "CTO-US" else d_s["cours"]
+                    pv_s = calcul_pv(ticker_s, d_s["cours"]) or 0
+                    barre = barre_score(sa, sv)
+                    verdict = verdict_score(sa, sv)
+                    rsi_txt = " RSI{:.0f}".format(rsi_s) if rsi_s else ""
+                    pv_txt = " PV{:+.0f}EUR".format(pv_s) if pv_s else ""
+                    ligne = "<b>{}</b> {}EUR{}{}\n[{}] {}\nA:{} V:{}".format(
+                        s_cfg["nom"], cours_s, rsi_txt, pv_txt,
+                        barre, verdict, sa, sv)
+                    lignes_cto.append(ligne)
+
+                lignes_watch = ["", "<b>🔭 SURVEILLANCE - Signaux nets</b>", "━" * 24]
+                watch_sig = []
+                for ticker_w, s_w in SEUILS.items():
+                    if s_w.get("type") not in ["WATCH", "WATCH-US"]: continue
+                    d_w = donnees_score_ok.get(ticker_w)
+                    if not d_w: continue
+                    sa_w = d_w.get("score_achat", 0)
+                    sv_w = d_w.get("score_vente", 0)
+                    if abs(sa_w - sv_w) < 20: continue
+                    rsi_w = d_w.get("rsi")
+                    rsi_wtxt = " RSI{:.0f}".format(rsi_w) if rsi_w else ""
+                    watch_sig.append((sa_w - sv_w, ticker_w, s_w["nom"],
+                                      barre_score(sa_w, sv_w), verdict_score(sa_w, sv_w),
+                                      rsi_wtxt, sa_w, sv_w))
+                watch_sig.sort(key=lambda x: -x[0])
+                if watch_sig:
+                    for net_w, t_w, nom_w, barre_w, verd_w, rsi_wt, sa_w, sv_w in watch_sig[:8]:
+                        ligne_w = "<b>{}</b>{}\n[{}] {}\nA:{} V:{}".format(
+                            nom_w, rsi_wt, barre_w, verd_w, sa_w, sv_w)
+                        lignes_watch.append(ligne_w)
+                else:
+                    lignes_watch.append("Aucun signal net en surveillance.")
+
+                legende = [
+                    "",
+                    "<i>▓▓▓▓▓▓▓▓▓▓ = fort signal achat | ░░░░░░░░░░ = fort signal vente</i>",
+                    "<i>A = score achat | V = score vente (0-100)</i>"
+                ]
+                msg_score = "\n".join(lignes_cto + lignes_watch + legende)
+                send_telegram(msg_score)
+                continue
 
 
-        if "ia" == tl or "actu ia" in tl:
-            news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
-            ia_themes = [t for t in geo_themes if t in [
-                "ia", "intelligence artificielle", "openai", "anthropic", "gemini",
-                "gpt", "llm", "nvidia", "palantir", "cloud", "agent ia", "cyber", "xai"]]
-            ia_impacts = {k: v for k, v in geo_scores.items()
-                          if k in ["MSFT", "NVDA", "PLTR", "GOOGL", "CAP.PA", "SU.PA", "SPCX"]}
-            lignes_ia = ["🤖 <b>Actu IA du jour :</b>"]
-            if ia_themes:
-                lignes_ia.append("Themes : " + ", ".join(ia_themes))
-            for ticker, score in sorted(ia_impacts.items(), key=lambda x: abs(x[1]), reverse=True):
-                nom = SEUILS.get(ticker, {}).get("nom", ticker)
-                emoji_ia = "🟢" if score > 0 else "🔴"
-                lignes_ia.append("  {} {} {:+d}pts".format(emoji_ia, nom, score))
-            ia_news = [n for n in news_m if any(kw in n.lower() for kw in
-                       ["ai", "openai", "anthropic", "palantir", "nvidia", "gemini", "google", "xai"])]
-            if ia_news:
-                lignes_ia.append("\nNews :")
-                for n in ia_news[:3]:
-                    lignes_ia.append("• " + n[:80])
-            send_telegram("\n".join(lignes_ia))
-            continue
+            if "ia" == tl or "actu ia" in tl:
+                news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
+                ia_themes = [t for t in geo_themes if t in [
+                    "ia", "intelligence artificielle", "openai", "anthropic", "gemini",
+                    "gpt", "llm", "nvidia", "palantir", "cloud", "agent ia", "cyber", "xai"]]
+                ia_impacts = {k: v for k, v in geo_scores.items()
+                              if k in ["MSFT", "NVDA", "PLTR", "GOOGL", "CAP.PA", "SU.PA", "SPCX"]}
+                lignes_ia = ["🤖 <b>Actu IA du jour :</b>"]
+                if ia_themes:
+                    lignes_ia.append("Themes : " + ", ".join(ia_themes))
+                for ticker, score in sorted(ia_impacts.items(), key=lambda x: abs(x[1]), reverse=True):
+                    nom = SEUILS.get(ticker, {}).get("nom", ticker)
+                    emoji_ia = "🟢" if score > 0 else "🔴"
+                    lignes_ia.append("  {} {} {:+d}pts".format(emoji_ia, nom, score))
+                ia_news = [n for n in news_m if any(kw in n.lower() for kw in
+                           ["ai", "openai", "anthropic", "palantir", "nvidia", "gemini", "google", "xai"])]
+                if ia_news:
+                    lignes_ia.append("\nNews :")
+                    for n in ia_news[:3]:
+                        lignes_ia.append("• " + n[:80])
+                send_telegram("\n".join(lignes_ia))
+                continue
 
-        if "capitol" in tl or "congress" in tl or "elus" in tl:
-            trades = get_capitol_trades()
-            send_telegram(formatter_capitol_telegram(trades))
-            continue
+            if "capitol" in tl or "congress" in tl or "elus" in tl:
+                trades = get_capitol_trades()
+                send_telegram(formatter_capitol_telegram(trades))
+                continue
 
-        if "emergent" in tl or "decouverte" in tl or "nouvelles societes" in tl:
-            decouverte_societes_emergentes()
-            continue
+            if "emergent" in tl or "decouverte" in tl or "nouvelles societes" in tl:
+                decouverte_societes_emergentes()
+                continue
 
-        if "stop" in tl and "loss" in tl:
+            if "stop" in tl and "loss" in tl:
+                donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
+                donnees_ok = [d for d in donnees if d]
+                sl = check_stop_loss(donnees_ok)
+                if sl:
+                    lignes = ["🛑 <b>Positions en stop-loss (perte > 15%) :</b>"]
+                    for x in sl:
+                        lignes.append("🔴 <b>{}</b> : {:+.1f}% | PRU {}EUR → {}EUR | {} actions".format(
+                            x["nom"], x["perte_pct"], x["px_revient"], x["cours"], x["quantite"]))
+                    send_telegram("\n".join(lignes))
+                else:
+                    send_telegram("✅ Aucune position en stop-loss (seuil -15%).")
+                continue
+
+            if tl.startswith("patch:"):
+                if not GITHUB_TOKEN:
+                    send_telegram("❌ GITHUB_TOKEN non configure dans Railway.")
+                    continue
+                send_telegram("🔧 Patch recu — verification syntaxe en cours...")
+                try:
+                    contenu = text[6:].strip()
+                    if "|||" in contenu:
+                        parties = contenu.split("|||")
+                        desc    = parties[0].strip().split("|")[0].strip()
+                        ancien  = parties[0].strip().split("|")[1].strip() if "|" in parties[0] else ""
+                        nouveau = parties[1].strip()
+                        auto_patch(desc, ancien, nouveau, raison="commande manuelle")
+                    else:
+                        send_telegram("Format : patch: description | ancien_code ||| nouveau_code")
+                except Exception as e:
+                    send_telegram("❌ Erreur patch : " + str(e)[:100])
+                continue
+
+            text_parts = tl.split()
+            if text_parts and text_parts[0] in ["achat", "vente", "acheté", "vendu"]:
+                if len(text_parts) >= 4:
+                    action_str = "achat" if text_parts[0] in ["achat","acheté"] else "vente"
+                    nom_cherche = text_parts[1].upper()
+                    ticker_trouve = None
+                    for k, v in SEUILS.items():
+                        if nom_cherche in v["nom"].upper() or nom_cherche == k.replace(".PA","").replace("=F","").replace(".AS",""):
+                            ticker_trouve = k
+                            break
+                    if ticker_trouve:
+                        try:
+                            quantite  = int(text_parts[2])
+                            px_revient = float(text_parts[3].replace(",","."))
+                            send_telegram("📊 Mise a jour portefeuille en cours...")
+                            auto_update_portfolio(ticker_trouve, quantite, px_revient, action_str)
+                        except ValueError:
+                            send_telegram("Format : achat/vente NOM QTE PRIX\nEx: achat THALES 1 223")
+                    else:
+                        send_telegram("❌ Valeur '{}' non trouvee dans le portefeuille.".format(nom_cherche))
+                    continue
+
+            if "patch" in tl and "histori" in tl:
+                m = load_memoire()
+                patches = m.get("historique_patches", [])
+                if not patches:
+                    send_telegram("Aucun patch applique pour l instant.")
+                else:
+                    lignes = ["🔧 <b>Historique des patches :</b>"]
+                    for p in patches[-5:]:
+                        emoji = "✅" if p.get("succes") else "❌"
+                        lignes.append("{} {} — {}".format(
+                            emoji, p.get("date","?"), p.get("description","?")))
+                    send_telegram("\n".join(lignes))
+                continue
+
+            # v11.8 : profil de risque
+            if tl.startswith("risque"):
+                parts = tl.split()
+                if len(parts) >= 2:
+                    nouveau_prof = set_risk_profile(parts[1])
+                    if nouveau_prof:
+                        prof = RISK_PROFILES[nouveau_prof]
+                        send_telegram(
+                            "🎚 <b>Profil de risque : {}</b>\n"
+                            "Taille max : {} actions | Plancher cash : {}EUR\n"
+                            "Max par ligne : {:.0f}% | Max par secteur : {:.0f}%\n"
+                            "Seuil de signal : {}pts\n\n"
+                            "<i>Ce reglage change la taille des positions, pas les filtres "
+                            "anti-contradiction. Plus de risque = positions plus grosses, "
+                            "pas des signaux plus permissifs.</i>".format(
+                                nouveau_prof, prof["max_actions"], prof["cash_floor"],
+                                prof["max_ligne"] * 100, prof["max_secteur"] * 100,
+                                prof["seuil_score"]))
+                    else:
+                        send_telegram("Profils : prudent | equilibre | offensif")
+                else:
+                    n, prof = get_risk_profile()
+                    send_telegram("🎚 Profil actuel : <b>{}</b> (taille max {} actions, "
+                                  "plancher cash {}EUR)\nPour changer : risque offensif".format(
+                                      n, prof["max_actions"], prof["cash_floor"]))
+                continue
+
+            # v11.8 : exposition CONSOLIDEE (CTO + PEA + PER)
+            if tl in ["expo", "exposition", "diversification", "repartition"]:
+                send_telegram("⏳ Calcul de l exposition consolidee...")
+                total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
+                cash_cto, cash_pea = get_cash("CTO"), get_cash("PEA")
+                base = total + cash_cto + cash_pea
+                nom_prof, prof = get_risk_profile()
+                if base <= 0:
+                    send_telegram("Portefeuille vide.")
+                    continue
+                lg = ["📐 <b>EXPOSITION CONSOLIDEE</b>", "━" * 24,
+                      "<b>{:.0f}EUR</b> au total".format(base), ""]
+                lg.append("<b>Par enveloppe :</b>")
+                for env in ["CTO", "PEA", "PER"]:
+                    montant = par_env.get(env, 0)
+                    if montant:
+                        lg.append("  {:<6} {:>9.0f}EUR  {:>5.1f}%".format(env, montant, montant / base * 100))
+                lg.append("  {:<6} {:>9.0f}EUR  {:>5.1f}%  (CTO {:.0f} + PEA {:.0f})".format(
+                    "Cash", cash_cto + cash_pea, (cash_cto + cash_pea) / base * 100, cash_cto, cash_pea))
+                lg.append("")
+                lg.append("<b>Par secteur :</b>")
+                for sect, montant in sorted(secteurs_exp.items(), key=lambda x: -x[1]):
+                    pct = montant / base * 100
+                    flag = " ⚠️ plafond {:.0f}%".format(prof["max_secteur"] * 100) if pct > prof["max_secteur"] * 100 else ""
+                    lg.append("  {:<18} {:>5.1f}%{}".format(sect[:18], pct, flag))
+                lg.append("")
+                lg.append("<b>Top lignes :</b>")
+                for cle, montant in sorted(lignes_exp.items(), key=lambda x: -x[1])[:8]:
+                    pct = montant / base * 100
+                    flag = " ⚠️" if pct > prof["max_ligne"] * 100 else ""
+                    lg.append("  {:<26} {:>5.1f}%{}".format(nom_ligne(cle)[:26], pct, flag))
+                # Beta indicatif : mesure si le portefeuille est reellement offensif
+                beta_pondere, poids_connus = 0.0, 0.0
+                for cle, montant in lignes_exp.items():
+                    base_t = cle.partition("|")[0]
+                    b = SEUILS.get(base_t, {}).get("beta")
+                    if b is None and base_t in SEUILS:
+                        t_ = SEUILS[base_t].get("type", "")
+                        sect_ = SEUILS[base_t].get("secteur", "")
+                        b = 1.0 if t_ == "PEA" or sect_.startswith("ETF") else 1.1
+                    if b:
+                        beta_pondere += b * montant; poids_connus += montant
+                if poids_connus:
+                    lg.append("<b>Beta indicatif :</b> {:.2f} — profil <b>{}</b>".format(
+                        beta_pondere / poids_connus, nom_prof))
+                    lg.append("<i>Sous 1.0 = plus calme que le marche, au-dessus = plus nerveux.</i>")
+                lg.append("")
+                if cash_cto < prof["cash_floor"]:
+                    lg.append("⚠️ Cash CTO sous le plancher {}EUR — signaux CTO bloques.".format(
+                        prof["cash_floor"]))
+                absents = [c for c in ["Sante", "Conso de base", "Assurance", "Banque", "Infrastructure"]
+                           if c not in set(secteurs_exp.keys())]
+                if absents:
+                    lg.append("<b>Secteurs absents :</b> " + ", ".join(absents))
+                lg.append("")
+                lg.append("<i>PER fige au {} — mise a jour : 'maj per MONTANT'. "
+                          "Le PER est bloque jusqu a la retraite : compte dans l exposition, "
+                          "jamais dans les signaux.</i>".format(PER_DATE_RELEVE))
+                send_telegram("\n".join(lg))
+                continue
+
+            # v11.8 : suivi de performance et ajustement automatique
+            if tl in ["perf", "performance", "risque auto", "ajustement"]:
+                resultats = backtest_decisions()
+                n = len(resultats)
+                bons = sum(1 for r in resultats if r.get("bon"))
+                taux = round(bons / n * 100) if n else None
+                dd, pic, act = calcul_drawdown()
+                nom_p, prof_p = get_risk_profile()
+                m_p = load_memoire()
+                S = SEUILS_AJUSTEMENT
+                lg = ["📈 <b>PERFORMANCE ET RISQUE</b>", "━" * 24, "",
+                      "Profil actuel : <b>{}</b>".format(nom_p)]
+                if taux is not None:
+                    lg.append("Taux de succes : <b>{}%</b> ({} bonnes / {} decisions)".format(taux, bons, n))
+                else:
+                    lg.append("Taux de succes : pas encore de decision evaluee")
+                if dd is not None:
+                    lg.append("Repli depuis le plus haut : <b>{:.1f}%</b> ({:.0f}EUR → {:.0f}EUR)".format(dd, pic, act))
+                else:
+                    lg.append("Repli : historique insuffisant (1re photo au prochain controle)")
+                lg.append("")
+                lg.append("<b>Declencheurs automatiques :</b>")
+                lg.append("  ↓ Desensibilisation si taux &lt;{}% ({}+ decisions) OU repli &gt;{}%".format(
+                    S["taux_descente"], S["min_decisions_descente"], S["drawdown_descente"]))
+                lg.append("  ↑ Montee si taux &gt;{}% ({}+ decisions) ET repli &lt;{}%, apres {} semaines".format(
+                    S["taux_montee"], S["min_decisions_montee"], S["drawdown_montee"], S["semaines_avant_montee"]))
+                bascules = m_p.get("historique_bascules", [])
+                if bascules:
+                    lg.append("")
+                    lg.append("<b>Derniers ajustements :</b>")
+                    for b in bascules[-3:]:
+                        lg.append("  {} : {} → {} ({})".format(
+                            b.get("date", "?"), b.get("de", "?"), b.get("vers", "?"),
+                            (b.get("motifs") or ["?"])[0][:50]))
+                lg.append("")
+                lg.append("<i>Descente rapide sur un seul critere, remontee lente sur les deux. "
+                          "Perdre doit couter plus vite que regagner de la confiance.</i>")
+                send_telegram("\n".join(lg))
+                continue
+
+            # v11.8 : diagnostic des sources
+            if tl in ["diag", "diagnostic", "sources", "health"]:
+                send_telegram("⏳ Test des sources en cours...")
+                send_telegram(diagnostic_sources())
+                continue
+
+            if tl in ["cache", "vider cache", "refresh"]:
+                n = vider_cache()
+                send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
+                continue
+
+            # v11.8 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+            if tl.startswith("maj per"):
+                parts = tl.split()
+                if len(parts) >= 3:
+                    try:
+                        nouveau_total = float(parts[2].replace(",", "."))
+                        ancien_total = sum(p["valeur_eur"] for p in PER_POSITIONS.values())
+                        if ancien_total > 0:
+                            ratio = nouveau_total / ancien_total
+                            for isin in PER_POSITIONS:
+                                PER_POSITIONS[isin]["valeur_eur"] = round(
+                                    PER_POSITIONS[isin]["valeur_eur"] * ratio, 2)
+                            m_per = load_memoire()
+                            m_per.setdefault("params", {})["per_total"] = nouveau_total
+                            save_memoire(m_per)
+                            send_telegram(
+                                "📄 PER mis a jour : <b>{:.2f}EUR</b> (x{:.3f})\n"
+                                "<i>Mise a l echelle proportionnelle — la repartition entre "
+                                "supports est conservee. Valeurs perdues au prochain redeploy "
+                                "si non patchees dans le code.</i>".format(nouveau_total, ratio))
+                    except ValueError:
+                        send_telegram("Format : maj per 7561.25")
+                else:
+                    total_per = sum(p["valeur_eur"] for p in PER_POSITIONS.values())
+                    lg = ["📄 <b>PER — Epargne Volontaire Deductible</b>",
+                          "<i>Releve du {} — bloque jusqu a la retraite</i>".format(PER_DATE_RELEVE), ""]
+                    for isin, pos in sorted(PER_POSITIONS.items(), key=lambda x: -x[1]["valeur_eur"]):
+                        lg.append("  {:<26} {:>8.0f}EUR".format(pos["nom"][:26], pos["valeur_eur"]))
+                    lg.append("")
+                    lg.append("Total : <b>{:.2f}EUR</b>".format(total_per))
+                    lg.append("Pour actualiser : maj per MONTANT")
+                    send_telegram("\n".join(lg))
+                continue
+
+            # v11.8 : fiche valeur — "danone", "sanofi", "HO.PA"...
+            # Placee juste avant le dialogue libre : si le texte designe une valeur
+            # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
+            if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
+                try:
+                    fiche = fiche_valeur(text)
+                except Exception as e:
+                    print("[FICHE VALEUR] Erreur : " + str(e))
+                    fiche = ("⚠️ Erreur en calculant la fiche de '{}'. "
+                            "Tape 'diag' pour verifier les sources, ou reessaie.".format(text))
+                if fiche:
+                    send_telegram(fiche)
+                    continue
+
+            # Dialogue contextuel — toute autre question
             donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
             donnees_ok = [d for d in donnees if d]
-            sl = check_stop_loss(donnees_ok)
-            if sl:
-                lignes = ["🛑 <b>Positions en stop-loss (perte > 15%) :</b>"]
-                for x in sl:
-                    lignes.append("🔴 <b>{}</b> : {:+.1f}% | PRU {}EUR → {}EUR | {} actions".format(
-                        x["nom"], x["perte_pct"], x["px_revient"], x["cours"], x["quantite"]))
-                send_telegram("\n".join(lignes))
+            news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
+            if any(kw in tl for kw in ["actu", "news", "que se passe"]):
+                web_actu = recherche_web_claude()
             else:
-                send_telegram("✅ Aucune position en stop-loss (seuil -15%).")
-            continue
+                web_actu = recherche_web_active()
+            reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
+            send_telegram("🤖 <b>Agent v11.8 :</b>\n" + reponse)
+        except Exception as e:
+            print("[HANDLER] Erreur non prevue sur '{}' : {}".format(text[:60], e))
+            send_telegram(
+                "⚠️ Erreur interne en traitant ce message.\n"
+                "Tape 'diag' pour verifier les sources, ou reessaie.")
 
-        if tl.startswith("patch:"):
-            if not GITHUB_TOKEN:
-                send_telegram("❌ GITHUB_TOKEN non configure dans Railway.")
-                continue
-            send_telegram("🔧 Patch recu — verification syntaxe en cours...")
-            try:
-                contenu = text[6:].strip()
-                if "|||" in contenu:
-                    parties = contenu.split("|||")
-                    desc    = parties[0].strip().split("|")[0].strip()
-                    ancien  = parties[0].strip().split("|")[1].strip() if "|" in parties[0] else ""
-                    nouveau = parties[1].strip()
-                    auto_patch(desc, ancien, nouveau, raison="commande manuelle")
-                else:
-                    send_telegram("Format : patch: description | ancien_code ||| nouveau_code")
-            except Exception as e:
-                send_telegram("❌ Erreur patch : " + str(e)[:100])
-            continue
-
-        text_parts = tl.split()
-        if text_parts and text_parts[0] in ["achat", "vente", "acheté", "vendu"]:
-            if len(text_parts) >= 4:
-                action_str = "achat" if text_parts[0] in ["achat","acheté"] else "vente"
-                nom_cherche = text_parts[1].upper()
-                ticker_trouve = None
-                for k, v in SEUILS.items():
-                    if nom_cherche in v["nom"].upper() or nom_cherche == k.replace(".PA","").replace("=F","").replace(".AS",""):
-                        ticker_trouve = k
-                        break
-                if ticker_trouve:
-                    try:
-                        quantite  = int(text_parts[2])
-                        px_revient = float(text_parts[3].replace(",","."))
-                        send_telegram("📊 Mise a jour portefeuille en cours...")
-                        auto_update_portfolio(ticker_trouve, quantite, px_revient, action_str)
-                    except ValueError:
-                        send_telegram("Format : achat/vente NOM QTE PRIX\nEx: achat THALES 1 223")
-                else:
-                    send_telegram("❌ Valeur '{}' non trouvee dans le portefeuille.".format(nom_cherche))
-                continue
-
-        if "patch" in tl and "histori" in tl:
-            m = load_memoire()
-            patches = m.get("historique_patches", [])
-            if not patches:
-                send_telegram("Aucun patch applique pour l instant.")
-            else:
-                lignes = ["🔧 <b>Historique des patches :</b>"]
-                for p in patches[-5:]:
-                    emoji = "✅" if p.get("succes") else "❌"
-                    lignes.append("{} {} — {}".format(
-                        emoji, p.get("date","?"), p.get("description","?")))
-                send_telegram("\n".join(lignes))
-            continue
-
-        # v11.7 : profil de risque
-        if tl.startswith("risque"):
-            parts = tl.split()
-            if len(parts) >= 2:
-                nouveau_prof = set_risk_profile(parts[1])
-                if nouveau_prof:
-                    prof = RISK_PROFILES[nouveau_prof]
-                    send_telegram(
-                        "🎚 <b>Profil de risque : {}</b>\n"
-                        "Taille max : {} actions | Plancher cash : {}EUR\n"
-                        "Max par ligne : {:.0f}% | Max par secteur : {:.0f}%\n"
-                        "Seuil de signal : {}pts\n\n"
-                        "<i>Ce reglage change la taille des positions, pas les filtres "
-                        "anti-contradiction. Plus de risque = positions plus grosses, "
-                        "pas des signaux plus permissifs.</i>".format(
-                            nouveau_prof, prof["max_actions"], prof["cash_floor"],
-                            prof["max_ligne"] * 100, prof["max_secteur"] * 100,
-                            prof["seuil_score"]))
-                else:
-                    send_telegram("Profils : prudent | equilibre | offensif")
-            else:
-                n, prof = get_risk_profile()
-                send_telegram("🎚 Profil actuel : <b>{}</b> (taille max {} actions, "
-                              "plancher cash {}EUR)\nPour changer : risque offensif".format(
-                                  n, prof["max_actions"], prof["cash_floor"]))
-            continue
-
-        # v11.7 : exposition CONSOLIDEE (CTO + PEA + PER)
-        if tl in ["expo", "exposition", "diversification", "repartition"]:
-            send_telegram("⏳ Calcul de l exposition consolidee...")
-            total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
-            cash_cto, cash_pea = get_cash("CTO"), get_cash("PEA")
-            base = total + cash_cto + cash_pea
-            nom_prof, prof = get_risk_profile()
-            if base <= 0:
-                send_telegram("Portefeuille vide.")
-                continue
-            lg = ["📐 <b>EXPOSITION CONSOLIDEE</b>", "━" * 24,
-                  "<b>{:.0f}EUR</b> au total".format(base), ""]
-            lg.append("<b>Par enveloppe :</b>")
-            for env in ["CTO", "PEA", "PER"]:
-                montant = par_env.get(env, 0)
-                if montant:
-                    lg.append("  {:<6} {:>9.0f}EUR  {:>5.1f}%".format(env, montant, montant / base * 100))
-            lg.append("  {:<6} {:>9.0f}EUR  {:>5.1f}%  (CTO {:.0f} + PEA {:.0f})".format(
-                "Cash", cash_cto + cash_pea, (cash_cto + cash_pea) / base * 100, cash_cto, cash_pea))
-            lg.append("")
-            lg.append("<b>Par secteur :</b>")
-            for sect, montant in sorted(secteurs_exp.items(), key=lambda x: -x[1]):
-                pct = montant / base * 100
-                flag = " ⚠️ plafond {:.0f}%".format(prof["max_secteur"] * 100) if pct > prof["max_secteur"] * 100 else ""
-                lg.append("  {:<18} {:>5.1f}%{}".format(sect[:18], pct, flag))
-            lg.append("")
-            lg.append("<b>Top lignes :</b>")
-            for cle, montant in sorted(lignes_exp.items(), key=lambda x: -x[1])[:8]:
-                pct = montant / base * 100
-                flag = " ⚠️" if pct > prof["max_ligne"] * 100 else ""
-                lg.append("  {:<26} {:>5.1f}%{}".format(nom_ligne(cle)[:26], pct, flag))
-            # Beta indicatif : mesure si le portefeuille est reellement offensif
-            beta_pondere, poids_connus = 0.0, 0.0
-            for cle, montant in lignes_exp.items():
-                base_t = cle.partition("|")[0]
-                b = SEUILS.get(base_t, {}).get("beta")
-                if b is None and base_t in SEUILS:
-                    t_ = SEUILS[base_t].get("type", "")
-                    sect_ = SEUILS[base_t].get("secteur", "")
-                    b = 1.0 if t_ == "PEA" or sect_.startswith("ETF") else 1.1
-                if b:
-                    beta_pondere += b * montant; poids_connus += montant
-            if poids_connus:
-                lg.append("<b>Beta indicatif :</b> {:.2f} — profil <b>{}</b>".format(
-                    beta_pondere / poids_connus, nom_prof))
-                lg.append("<i>Sous 1.0 = plus calme que le marche, au-dessus = plus nerveux.</i>")
-            lg.append("")
-            if cash_cto < prof["cash_floor"]:
-                lg.append("⚠️ Cash CTO sous le plancher {}EUR — signaux CTO bloques.".format(
-                    prof["cash_floor"]))
-            absents = [c for c in ["Sante", "Conso de base", "Assurance", "Banque", "Infrastructure"]
-                       if c not in set(secteurs_exp.keys())]
-            if absents:
-                lg.append("<b>Secteurs absents :</b> " + ", ".join(absents))
-            lg.append("")
-            lg.append("<i>PER fige au {} — mise a jour : 'maj per MONTANT'. "
-                      "Le PER est bloque jusqu a la retraite : compte dans l exposition, "
-                      "jamais dans les signaux.</i>".format(PER_DATE_RELEVE))
-            send_telegram("\n".join(lg))
-            continue
-
-        # v11.7 : suivi de performance et ajustement automatique
-        if tl in ["perf", "performance", "risque auto", "ajustement"]:
-            resultats = backtest_decisions()
-            n = len(resultats)
-            bons = sum(1 for r in resultats if r.get("bon"))
-            taux = round(bons / n * 100) if n else None
-            dd, pic, act = calcul_drawdown()
-            nom_p, prof_p = get_risk_profile()
-            m_p = load_memoire()
-            S = SEUILS_AJUSTEMENT
-            lg = ["📈 <b>PERFORMANCE ET RISQUE</b>", "━" * 24, "",
-                  "Profil actuel : <b>{}</b>".format(nom_p)]
-            if taux is not None:
-                lg.append("Taux de succes : <b>{}%</b> ({} bonnes / {} decisions)".format(taux, bons, n))
-            else:
-                lg.append("Taux de succes : pas encore de decision evaluee")
-            if dd is not None:
-                lg.append("Repli depuis le plus haut : <b>{:.1f}%</b> ({:.0f}EUR → {:.0f}EUR)".format(dd, pic, act))
-            else:
-                lg.append("Repli : historique insuffisant (1re photo au prochain controle)")
-            lg.append("")
-            lg.append("<b>Declencheurs automatiques :</b>")
-            lg.append("  ↓ Desensibilisation si taux &lt;{}% ({}+ decisions) OU repli &gt;{}%".format(
-                S["taux_descente"], S["min_decisions_descente"], S["drawdown_descente"]))
-            lg.append("  ↑ Montee si taux &gt;{}% ({}+ decisions) ET repli &lt;{}%, apres {} semaines".format(
-                S["taux_montee"], S["min_decisions_montee"], S["drawdown_montee"], S["semaines_avant_montee"]))
-            bascules = m_p.get("historique_bascules", [])
-            if bascules:
-                lg.append("")
-                lg.append("<b>Derniers ajustements :</b>")
-                for b in bascules[-3:]:
-                    lg.append("  {} : {} → {} ({})".format(
-                        b.get("date", "?"), b.get("de", "?"), b.get("vers", "?"),
-                        (b.get("motifs") or ["?"])[0][:50]))
-            lg.append("")
-            lg.append("<i>Descente rapide sur un seul critere, remontee lente sur les deux. "
-                      "Perdre doit couter plus vite que regagner de la confiance.</i>")
-            send_telegram("\n".join(lg))
-            continue
-
-        # v11.7 : diagnostic des sources
-        if tl in ["diag", "diagnostic", "sources", "health"]:
-            send_telegram("⏳ Test des sources en cours...")
-            send_telegram(diagnostic_sources())
-            continue
-
-        if tl in ["cache", "vider cache", "refresh"]:
-            n = vider_cache()
-            send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
-            continue
-
-        # v11.7 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
-        if tl.startswith("maj per"):
-            parts = tl.split()
-            if len(parts) >= 3:
-                try:
-                    nouveau_total = float(parts[2].replace(",", "."))
-                    ancien_total = sum(p["valeur_eur"] for p in PER_POSITIONS.values())
-                    if ancien_total > 0:
-                        ratio = nouveau_total / ancien_total
-                        for isin in PER_POSITIONS:
-                            PER_POSITIONS[isin]["valeur_eur"] = round(
-                                PER_POSITIONS[isin]["valeur_eur"] * ratio, 2)
-                        m_per = load_memoire()
-                        m_per.setdefault("params", {})["per_total"] = nouveau_total
-                        save_memoire(m_per)
-                        send_telegram(
-                            "📄 PER mis a jour : <b>{:.2f}EUR</b> (x{:.3f})\n"
-                            "<i>Mise a l echelle proportionnelle — la repartition entre "
-                            "supports est conservee. Valeurs perdues au prochain redeploy "
-                            "si non patchees dans le code.</i>".format(nouveau_total, ratio))
-                except ValueError:
-                    send_telegram("Format : maj per 7561.25")
-            else:
-                total_per = sum(p["valeur_eur"] for p in PER_POSITIONS.values())
-                lg = ["📄 <b>PER — Epargne Volontaire Deductible</b>",
-                      "<i>Releve du {} — bloque jusqu a la retraite</i>".format(PER_DATE_RELEVE), ""]
-                for isin, pos in sorted(PER_POSITIONS.items(), key=lambda x: -x[1]["valeur_eur"]):
-                    lg.append("  {:<26} {:>8.0f}EUR".format(pos["nom"][:26], pos["valeur_eur"]))
-                lg.append("")
-                lg.append("Total : <b>{:.2f}EUR</b>".format(total_per))
-                lg.append("Pour actualiser : maj per MONTANT")
-                send_telegram("\n".join(lg))
-            continue
-
-        # v11.7 : fiche valeur — "danone", "sanofi", "HO.PA"...
-        # Placee juste avant le dialogue libre : si le texte designe une valeur
-        # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
-        if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
-            try:
-                fiche = fiche_valeur(text)
-            except Exception as e:
-                print("[FICHE VALEUR] Erreur : " + str(e))
-                fiche = ("⚠️ Erreur en calculant la fiche de '{}'. "
-                        "Tape 'diag' pour verifier les sources, ou reessaie.".format(text))
-            if fiche:
-                send_telegram(fiche)
-                continue
-
-        # Dialogue contextuel — toute autre question
-        donnees = [calcul_indicateurs(t) for t in SEUILS.keys()]
-        donnees_ok = [d for d in donnees if d]
-        news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
-        if any(kw in tl for kw in ["actu", "news", "que se passe"]):
-            web_actu = recherche_web_claude()
-        else:
-            web_actu = recherche_web_active()
-        reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-        send_telegram("🤖 <b>Agent v11.7 :</b>\n" + reponse)
 
 # ============================================================
-# DIAGNOSTIC SOURCES v11.7 — Telegram "diag"
+# DIAGNOSTIC SOURCES v11.8 — Telegram "diag"
 # Repond enfin a la question ouverte depuis des semaines : les flux
 # fonctionnent-ils vraiment, ou echouent-ils en silence ?
 # ============================================================
@@ -2259,7 +2285,7 @@ def formatter_capitol_telegram(trades):
 # INDICATEURS TECHNIQUES
 # ============================================================
 # ============================================================
-# CACHE MARCHE v11.7
+# CACHE MARCHE v11.8
 # fiche_valeur declenchait ~10 appels reseau (2 directs + 8 via exposition,
 # plus RSS et CapitolTrades). Avec le cache, une fiche coute 1 a 2 appels.
 # TTL court : les cours restent frais, on evite juste les rafales.
@@ -2504,7 +2530,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.7) -------------------------------
+# --- Persistance GitHub de la memoire (v11.8) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -2644,7 +2670,7 @@ def get_eur_usd():
 EUR_USD_RATE = 1.08
 
 def calcul_pv(ticker, cours, enveloppe="CTO"):
-    """PV latente d une poche. v11.7 : la poche PEA etait ignoree."""
+    """PV latente d une poche. v11.8 : la poche PEA etait ignoree."""
     s = SEUILS.get(ticker, {})
     cours_eur = round(cours / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else cours
     if enveloppe.upper() == "PEA":
@@ -2820,7 +2846,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.7
+# ANALYSE COMPLETE v11.8
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -3191,7 +3217,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.7 :</b>\n{}\n"
+           "🤖 <b>Agent v11.8 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Nom de valeur → reco | 'expo' | 'perf' | 'diag' | 'risque X' | 'cash pea X'</i>").format(
         emoji_msg, titre, now,
@@ -3466,7 +3492,7 @@ Reponds en JSON strict (sans markdown) :
 
 
 def auto_optimisation_avec_patch():
-    """v11.7 : photo de valeur -> ajustement du profil -> optimisation des seuils.
+    """v11.8 : photo de valeur -> ajustement du profil -> optimisation des seuils.
     L ordre compte : le profil doit etre reajuste AVANT que les seuils soient
     optimises, sinon on optimise des parametres qu on vient de remplacer."""
     historiser_valeur()
@@ -3508,7 +3534,7 @@ def auto_optimisation_avec_patch():
 
 
 # ============================================================
-# AUTO-DESENSIBILISATION v11.7
+# AUTO-DESENSIBILISATION v11.8
 #
 # Le bot mesure ses propres resultats et redescend TOUT SEUL vers un profil
 # plus prudent quand ils se degradent. C est le mecanisme demande : ne plus
@@ -3675,7 +3701,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.7 — dialogue fiabilise")
+    print(" Agent Trading Matthieu v11.8 — filet de securite global")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -3694,7 +3720,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.7 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.8 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
@@ -3728,7 +3754,7 @@ if __name__ == "__main__":
                 print("[SCAN] {} — marches fermes, silence".format(
                     maintenant.strftime("%H:%M")))
 
-        # v11.7 : controle quotidien du repli. L ajustement hebdomadaire est trop
+        # v11.8 : controle quotidien du repli. L ajustement hebdomadaire est trop
         # lent si le portefeuille decroche en pleine semaine.
         est_1730 = maintenant.hour == 17 and maintenant.minute >= 30
         pas_verifie_auj = dernier_controle_dd.date() < maintenant.date()
