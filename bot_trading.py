@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.2 — diversification et fiche valeur
+Agent Trading Matthieu v11.3 — enveloppes consolidees (CTO + PEA + PER)
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,7 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.2 :
+Nouveautes v11.3 :
 - Fiche valeur : taper "danone" ou "SAN.PA" sur Telegram renvoie score + positionnement
   (filtres applicables, taille compatible, poids sectoriel, impact flat tax)
 - Univers de diversification : sante, conso de base, assurance, banque, infrastructure,
@@ -46,7 +46,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.2 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.3 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -113,12 +113,14 @@ SEUILS = {
     # CTO — Positions reelles
     "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
     "CAP.PA":  {"nom": "Capgemini",         "achat": 85.00, "vente": 130.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 0,  "px_revient": 0},
-    "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 33, "px_revient": 72.23},
+    "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 33, "px_revient": 72.23,
+                "pea": {"quantite": 9, "px_revient": 67.49}},
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
     "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
     "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 14, "px_revient": 235.59},
-    "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56},
+    "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
+                "pea": {"quantite": 2, "px_revient": 295.03}},
     "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
     "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 2,  "px_revient": 330.82},
     # SPCX — POSITION REELLE depuis IPO 12/06/2026
@@ -135,14 +137,15 @@ SEUILS = {
     "SOI.PA":  {"nom": "Soitec",            "achat": 80.00, "vente": 160.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
     "STM.PA":  {"nom": "STMicroelectronics","achat": 15.00, "vente": 35.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
     "VIE.PA":  {"nom": "Veolia",            "achat": 25.00, "vente": 40.00, "type": "WATCH",   "secteur": "Eau/Environnement"},
-    "ETL.PA":  {"nom": "Eutelsat",          "achat": 3.00,  "vente": 8.00,  "type": "WATCH",   "secteur": "Spatial"},
+    "ETL.PA":  {"nom": "Eutelsat",          "achat": 3.00,  "vente": 8.00,  "type": "WATCH",   "secteur": "Spatial",
+                "pea": {"quantite": 50, "px_revient": 2.14}},
     "MCPHY.PA":{"nom": "McPhy Energy",      "achat": 5.00,  "vente": 15.00, "type": "WATCH",   "secteur": "Hydrogene"},
     "AIL.PA":  {"nom": "Air Liquide",       "achat": 140.00,"vente": 200.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
     "NVDA":    {"nom": "Nvidia",            "achat": 100.00,"vente": 220.00,"type": "WATCH-US","secteur": "IA/Puces"},
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.2 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.3 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -154,8 +157,12 @@ SEUILS = {
 
     # PEA — socle indiciel
     "WPEA.PA": {"nom": "iShares World PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
-    "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
-    "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe"},
+    # Bourso Monde / Europe : OPCVM FR001400RWK6 / RWJ8, absents de yfinance.
+    # "valeur_eur" = valorisation figee du releve, mise a jour via "maj pea".
+    "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World",
+                "pea": {"quantite": 32.1799, "px_revient": 113.98, "valeur_eur": 3907.92}},
+    "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe",
+                "pea": {"quantite": 6.6600,  "px_revient": 122.55, "valeur_eur": 891.17}},
     # PEA — briques de diversification (zones/segments absents)
     "PE500.PA":{"nom": "ETF S&P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
@@ -170,6 +177,27 @@ SEUILS = {
     "GC=F":    {"nom": "Or",                "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Refuge"},
     "CL=F":    {"nom": "Petrole WTI",       "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Energie"},
 }
+
+# ============================================================
+# PER — Epargne Volontaire Deductible (C1) — releve du 06/08/2026
+# Bloque jusqu a la retraite (hors cas de deblocage anticipe) : le bot ne
+# genere JAMAIS de signal dessus. Ces lignes servent uniquement au calcul
+# de l exposition consolidee — sans elles, le bot croyait Matthieu
+# concentre a 56% sur la defense alors qu il est a ~25%.
+# Valorisations figees : ces supports assurantiels ne sont pas sur yfinance.
+# Mise a jour : "maj per 7561.25" (mise a l echelle proportionnelle).
+# ============================================================
+PER_POSITIONS = {
+    "IE00BHZPJ908": {"nom": "iShares USA CTB USD-AC", "quantite": 211.285, "px_revient": 10.83, "valeur_eur": 2539.65, "secteur": "ETF US"},
+    "IE000U7L59A3": {"nom": "iShares USA CTB EUR-AC", "quantite": 319.491, "px_revient": 7.09,  "valeur_eur": 2482.45, "secteur": "ETF US"},
+    "IE00BHZPJ452": {"nom": "iShares MSCI Japon",     "quantite": 26.097,  "px_revient": 7.51,  "valeur_eur": 230.96,  "secteur": "ETF Japon"},
+    "IE00BHZPJ783": {"nom": "iShares Europe ESG",     "quantite": 28.702,  "px_revient": 8.72,  "valeur_eur": 286.16,  "secteur": "ETF Europe"},
+    "IE00BHZPJ239": {"nom": "iShares MSCI USD-AC",    "quantite": 118.114, "px_revient": 6.92,  "valeur_eur": 960.27,  "secteur": "ETF Monde"},
+    "IE0002SCQ8X0": {"nom": "iShares MSCI EUR-ACC",   "quantite": 26.035,  "px_revient": 7.06,  "valeur_eur": 221.56,  "secteur": "ETF Europe"},
+    "FR0013301553": {"nom": "Eurazeo PRV Val EU3",    "quantite": 5.204,   "px_revient": 156.80,"valeur_eur": 840.20,  "secteur": "Private Equity"},
+}
+PER_DATE_RELEVE = "06/08/2026"
+
 
 CORRELATIONS = {
     "TTE.PA": "TotalEnergies suit le WTI a ~85% de correlation",
@@ -363,16 +391,39 @@ KEYWORDS_MACRO = ["trump", "taxe", "guerre", "iran", "ukraine", "russie", "chine
 # ============================================================
 # CASH DYNAMIQUE v11.0 — fini le cash code en dur
 # ============================================================
-def get_cash():
-    """Cash disponible — lu depuis la memoire, modifiable via Telegram 'cash X'."""
-    m = load_memoire()
-    return m.get("params", {}).get("cash_dispo", CASH_DEFAULT)
+CASH_PEA_DEFAULT = 1511.12   # Cash PEA au 06/08/2026 — Telegram "cash pea X"
 
-def set_cash(montant):
+def get_cash(enveloppe="CTO"):
+    """Cash disponible par enveloppe. Les deux poches sont ETANCHES :
+    le cash PEA ne peut acheter que des titres eligibles PEA, et le cash CTO
+    ne peut pas alimenter le PEA. Le bot ne doit jamais les additionner
+    pour dimensionner un ordre."""
     m = load_memoire()
-    m.setdefault("params", {})["cash_dispo"] = round(float(montant), 2)
+    p = m.get("params", {})
+    if enveloppe.upper() == "PEA":
+        return p.get("cash_pea", CASH_PEA_DEFAULT)
+    return p.get("cash_dispo", CASH_DEFAULT)
+
+def set_cash(montant, enveloppe="CTO"):
+    m = load_memoire()
+    cle = "cash_pea" if enveloppe.upper() == "PEA" else "cash_dispo"
+    m.setdefault("params", {})[cle] = round(float(montant), 2)
     save_memoire(m)
-    return m["params"]["cash_dispo"]
+    return m["params"][cle]
+
+def enveloppe_de(ticker):
+    """Enveloppe utilisee pour dimensionner un ordre sur ce ticker.
+
+    Regle : support PEA pur -> PEA | detenu uniquement en PEA -> PEA |
+    detenu en CTO (meme aussi en PEA) -> CTO, car c est la ou se fait
+    l arbitrage actif. Corrige le cas Eutelsat (detenue en PEA seulement,
+    mais dimensionnee a tort sur le cash CTO en v11.2)."""
+    s = SEUILS.get(ticker, {})
+    if s.get("type") == "PEA":
+        return "PEA"
+    if s.get("pea") and not s.get("quantite"):
+        return "PEA"
+    return "CTO"
 
 # ============================================================
 # CAPITOL TRADES
@@ -709,7 +760,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.2 : taille pilotee par le profil de risque.
+    """v11.3 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -906,15 +957,25 @@ def attendre_rate_limit():
 
 def build_system_prompt():
     """v11 : system prompt construit dynamiquement depuis SEUILS + cash reel."""
-    positions = []
+    pos_cto, pos_pea = [], []
     for k, v in SEUILS.items():
         if v.get("type") in ["CTO", "CTO-US"] and v.get("quantite"):
-            positions.append("{} {}@{}EUR".format(v["nom"], v["quantite"], v["px_revient"]))
-    return ("Agent financier de Matthieu (flat tax 30%, horizon 1 an, risque modere-eleve). "
-            "Positions : " + " | ".join(positions) +
-            ". Cash : {:.0f}EUR. ".format(get_cash()) +
-            "Regles : Microsoft et SPCX = ordre limite obligatoire. "
-            "SPCX = position post-IPO, prise de profit >+40%, renfort <112EUR si RSI<45. "
+            pos_cto.append("{} {}@{}EUR".format(v["nom"], v["quantite"], v["px_revient"]))
+        if v.get("pea"):
+            poche = v["pea"]
+            pos_pea.append("{} {:g}@{}EUR".format(v["nom"], poche.get("quantite", 0),
+                                                  poche.get("px_revient", "?")))
+    per_total = sum(x["valeur_eur"] for x in PER_POSITIONS.values())
+    return ("Agent financier de Matthieu (flat tax 30% sur CTO, horizon 1 an, risque modere-eleve). "
+            "CTO : " + " | ".join(pos_cto) + ". Cash CTO : {:.0f}EUR. ".format(get_cash("CTO")) +
+            "PEA : " + " | ".join(pos_pea) + ". Cash PEA : {:.0f}EUR. ".format(get_cash("PEA")) +
+            "PER (bloque jusqu a la retraite, ETF monde/US, JAMAIS d arbitrage propose) : "
+            "{:.0f}EUR. ".format(per_total) +
+            "REGLE ABSOLUE : les enveloppes sont etanches. Le cash PEA ne peut acheter "
+            "QUE des titres eligibles PEA ; le cash CTO ne peut pas alimenter le PEA. "
+            "Ne jamais additionner les deux poches pour dimensionner un ordre. "
+            "Microsoft et SPCX = ordre limite obligatoire. "
+            "SPCX = post-IPO, prise de profit >+40%, renfort <112EUR si RSI<45. "
             "Reponds en max 80 mots, chiffres precis, jamais de fraction d action.")
 
 
@@ -993,27 +1054,70 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.2 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.3 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
-def exposition_portefeuille(donnees_ok=None):
-    """Retourne (total_titres, {ticker: montant}, {secteur: montant})."""
+def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
+    """v11.3 : exposition CONSOLIDEE sur les trois enveloppes.
+
+    Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
+    Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
+    voyait 56% de defense la ou le patrimoine reel est autour de 25%.
+    """
+    tickers_marche = [t for t, v in SEUILS.items()
+                      if (v.get("quantite") or v.get("pea"))]
     if donnees_ok is None:
-        donnees_ok = [d for d in (calcul_indicateurs(t) for t, v in SEUILS.items()
-                      if v.get("type") in ["CTO", "CTO-US"] and v.get("quantite")) if d]
-    lignes, secteurs = {}, {}
-    for d in donnees_ok:
-        s = SEUILS.get(d["ticker"], {})
-        if s.get("type") not in ["CTO", "CTO-US"]: continue
-        qte = s.get("quantite", 0)
-        if not qte: continue
-        cours = round(d["cours"] / EUR_USD_RATE, 2) if s["type"] == "CTO-US" else d["cours"]
-        montant = cours * qte
-        lignes[d["ticker"]] = montant
-        # Regroupement : "Defense/IA" et "Defense" comptent comme un seul bloc
-        sect = s.get("secteur", "Autre").split("/")[0]
+        donnees_ok = [d for d in (calcul_indicateurs(t) for t in tickers_marche) if d]
+    par_ticker = {d["ticker"]: d for d in donnees_ok}
+
+    lignes, secteurs, par_env = {}, {}, {}
+
+    def _ajoute(cle, montant, secteur, env):
+        lignes[cle] = lignes.get(cle, 0) + montant
+        sect = secteur.split("/")[0]
         secteurs[sect] = secteurs.get(sect, 0) + montant
-    return round(sum(lignes.values()), 2), lignes, secteurs
+        par_env[env] = par_env.get(env, 0) + montant
+
+    for ticker, s in SEUILS.items():
+        d = par_ticker.get(ticker)
+        cours = None
+        if d:
+            cours = round(d["cours"] / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else d["cours"]
+
+        # Poche CTO
+        if "CTO" in enveloppes and s.get("type") in ["CTO", "CTO-US"] and s.get("quantite"):
+            if cours:
+                _ajoute(ticker + "|CTO", cours * s["quantite"], s.get("secteur", "Autre"), "CTO")
+
+        # Poche PEA (sous-cle "pea")
+        if "PEA" in enveloppes and s.get("pea"):
+            poche = s["pea"]
+            montant = None
+            if cours and poche.get("quantite"):
+                montant = cours * poche["quantite"]
+            elif poche.get("valeur_eur"):
+                montant = poche["valeur_eur"]   # OPCVM sans cotation yfinance
+            if montant:
+                _ajoute(ticker + "|PEA", montant, s.get("secteur", "Autre"), "PEA")
+
+    # PER — valorisations figees, jamais de signal
+    if "PER" in enveloppes:
+        for isin, pos in PER_POSITIONS.items():
+            _ajoute(isin + "|PER", pos["valeur_eur"], pos.get("secteur", "Autre"), "PER")
+
+    return round(sum(lignes.values()), 2), lignes, secteurs, par_env
+
+
+def nom_ligne(cle):
+    """'TTE.PA|PEA' -> 'TotalEnergies (PEA)'."""
+    base, _, env = cle.partition("|")
+    if base in SEUILS:
+        nom = SEUILS[base].get("nom", base)
+    elif base in PER_POSITIONS:
+        nom = PER_POSITIONS[base].get("nom", base)
+    else:
+        nom = base
+    return "{} ({})".format(nom, env) if env else nom
 
 
 def resoudre_valeur(texte):
@@ -1037,7 +1141,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.2 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.3 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1071,7 +1175,8 @@ def fiche_valeur(texte):
     est_us = s.get("type") in ["CTO-US", "WATCH-US"]
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
-    cash = get_cash()
+    env = enveloppe_de(ticker)
+    cash = get_cash(env)          # v11.3 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1104,23 +1209,35 @@ def fiche_valeur(texte):
 
     # --- Bloc positionnement : les regles de Matthieu, appliquees ---
     L.append("<b>Positionnement</b>")
-    detenu = bool(s.get("quantite"))
-    total, lignes_exp, secteurs_exp = exposition_portefeuille()
-    base = total + cash
+    detenu_cto = bool(s.get("quantite"))
+    detenu_pea = bool(s.get("pea"))
+    detenu = detenu_cto or detenu_pea
+    total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
+    base = total + get_cash("CTO") + get_cash("PEA")
     sect = s.get("secteur", "Autre").split("/")[0]
     poids_sect = (secteurs_exp.get(sect, 0) / base * 100) if base else 0
-    poids_ligne = (lignes_exp.get(ticker, 0) / base * 100) if base else 0
+    poids_ligne = ((lignes_exp.get(ticker + "|CTO", 0) + lignes_exp.get(ticker + "|PEA", 0))
+                   / base * 100) if base else 0
 
-    if detenu:
+    if detenu_cto:
         pv = calcul_pv(ticker, d["cours"]) or 0
-        L.append("Detenu : {} titre(s) @ {}EUR — PV {:+.0f}EUR ({:.1f}% du portefeuille)".format(
-            s.get("quantite"), s.get("px_revient"), pv, poids_ligne))
+        L.append("CTO : {} titre(s) @ {}EUR — PV {:+.0f}EUR".format(
+            s.get("quantite"), s.get("px_revient"), pv))
+    if detenu_pea:
+        poche = s["pea"]
+        pv_pea = ((cours_eur - poche["px_revient"]) * poche["quantite"]) if poche.get("quantite") else 0
+        L.append("PEA : {:g} titre(s) @ {}EUR — PV {:+.0f}EUR".format(
+            poche.get("quantite", 0), poche.get("px_revient", 0), pv_pea))
+    if detenu:
+        L.append("Poids consolide : {:.1f}% | secteur {} : {:.1f}%".format(
+            poids_ligne, sect, poids_sect))
     else:
-        L.append("Non detenu. Secteur {} = {:.1f}% du portefeuille.".format(sect, poids_sect))
+        L.append("Non detenu. Secteur {} = {:.1f}% du patrimoine consolide.".format(sect, poids_sect))
+    L.append("Enveloppe visee : <b>{}</b> (cash {} : {:.0f}EUR)".format(env, env, cash))
 
     # Filtres bloquants — memes regles que le scan
     blocages = []
-    if not detenu and s.get("type") in ["CTO", "CTO-US"]:
+    if not detenu_cto and s.get("type") in ["CTO", "CTO-US"]:
         blocages.append("ligne soldee — le bot ne rouvre jamais une position seul")
     if ticker == "TTE.PA":
         wti = calcul_indicateurs("CL=F")
@@ -1170,11 +1287,14 @@ def fiche_valeur(texte):
 
     if s.get("type") in ["CTO-US", "WATCH-US"] or ticker in ["MSFT", "SPCX"]:
         L.append("📌 Ordre limite obligatoire.")
-    if detenu:
+    if detenu_cto:
         pv = calcul_pv(ticker, d["cours"]) or 0
         if pv > 0:
-            L.append("💸 Vente : flat tax 30% ≈ {:.0f}EUR d impot, net ≈ {:.0f}EUR.".format(
+            L.append("💸 Vente CTO : flat tax 30% ≈ {:.0f}EUR d impot, net ≈ {:.0f}EUR.".format(
                 pv * 0.30, pv * 0.70))
+    if detenu_pea:
+        L.append("🛡 La poche PEA n est pas taxee tant qu il n y a pas de retrait "
+                 "(17.2% de prelevements sociaux apres 5 ans, au lieu de 30%).")
 
     note = CORRELATIONS.get(ticker)
     if note:
@@ -1229,14 +1349,27 @@ def check_messages_telegram():
         # v11 : mise a jour cash — "cash 881" ou "cash 881.67"
         if tl.startswith("cash"):
             parts = tl.split()
-            if len(parts) >= 2:
+            # "cash pea 1511.12" ou "cash 79.74"
+            if len(parts) >= 3 and parts[1] in ["pea", "cto"]:
                 try:
-                    nouveau = set_cash(parts[1].replace(",", "."))
-                    send_telegram("💰 Cash mis a jour : <b>{:.2f}EUR</b>".format(nouveau))
+                    env = parts[1].upper()
+                    nouveau = set_cash(parts[2].replace(",", "."), env)
+                    send_telegram("💰 Cash {} mis a jour : <b>{:.2f}EUR</b>".format(env, nouveau))
                 except ValueError:
-                    send_telegram("Format : cash 881.67")
+                    send_telegram("Format : cash pea 1511.12")
+            elif len(parts) >= 2:
+                try:
+                    nouveau = set_cash(parts[1].replace(",", "."), "CTO")
+                    send_telegram("💰 Cash CTO mis a jour : <b>{:.2f}EUR</b>".format(nouveau))
+                except ValueError:
+                    send_telegram("Format : cash 79.74  |  cash pea 1511.12")
             else:
-                send_telegram("💰 Cash actuel : <b>{:.2f}EUR</b>\nPour modifier : cash MONTANT".format(get_cash()))
+                send_telegram(
+                    "💰 Cash CTO : <b>{:.2f}EUR</b>\n"
+                    "💰 Cash PEA : <b>{:.2f}EUR</b>\n"
+                    "<i>Poches etanches — le cash PEA ne peut pas acheter sur le CTO.</i>\n"
+                    "Modifier : cash 79.74 | cash pea 1511.12".format(
+                        get_cash("CTO"), get_cash("PEA")))
             continue
 
         # v11 : statut SPCX dedie
@@ -1442,7 +1575,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lignes))
             continue
 
-        # v11.2 : profil de risque
+        # v11.3 : profil de risque
         if tl.startswith("risque"):
             parts = tl.split()
             if len(parts) >= 2:
@@ -1469,47 +1602,87 @@ def check_messages_telegram():
                                   n, prof["max_actions"], prof["cash_floor"]))
             continue
 
-        # v11.2 : exposition et diversification
+        # v11.3 : exposition CONSOLIDEE (CTO + PEA + PER)
         if tl in ["expo", "exposition", "diversification", "repartition"]:
-            send_telegram("⏳ Calcul de l exposition...")
-            total, lignes_exp, secteurs_exp = exposition_portefeuille()
-            cash_e = get_cash()
-            base = total + cash_e
+            send_telegram("⏳ Calcul de l exposition consolidee...")
+            total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
+            cash_cto, cash_pea = get_cash("CTO"), get_cash("PEA")
+            base = total + cash_cto + cash_pea
             nom_prof, prof = get_risk_profile()
             if base <= 0:
                 send_telegram("Portefeuille vide.")
                 continue
-            lg = ["📐 <b>EXPOSITION REELLE</b>", "━" * 24,
-                  "Titres {:.0f}EUR + cash {:.0f}EUR = <b>{:.0f}EUR</b>".format(total, cash_e, base), ""]
-            lg.append("<b>Par ligne :</b>")
-            for tk, montant in sorted(lignes_exp.items(), key=lambda x: -x[1]):
-                pct = montant / base * 100
-                flag = " ⚠️" if pct > prof["max_ligne"] * 100 else ""
-                lg.append("  {:<20} {:>5.1f}%{}".format(SEUILS[tk]["nom"][:20], pct, flag))
+            lg = ["📐 <b>EXPOSITION CONSOLIDEE</b>", "━" * 24,
+                  "<b>{:.0f}EUR</b> au total".format(base), ""]
+            lg.append("<b>Par enveloppe :</b>")
+            for env in ["CTO", "PEA", "PER"]:
+                montant = par_env.get(env, 0)
+                if montant:
+                    lg.append("  {:<6} {:>9.0f}EUR  {:>5.1f}%".format(env, montant, montant / base * 100))
+            lg.append("  {:<6} {:>9.0f}EUR  {:>5.1f}%  (CTO {:.0f} + PEA {:.0f})".format(
+                "Cash", cash_cto + cash_pea, (cash_cto + cash_pea) / base * 100, cash_cto, cash_pea))
             lg.append("")
             lg.append("<b>Par secteur :</b>")
             for sect, montant in sorted(secteurs_exp.items(), key=lambda x: -x[1]):
                 pct = montant / base * 100
                 flag = " ⚠️ plafond {:.0f}%".format(prof["max_secteur"] * 100) if pct > prof["max_secteur"] * 100 else ""
-                lg.append("  {:<20} {:>5.1f}%{}".format(sect[:20], pct, flag))
+                lg.append("  {:<18} {:>5.1f}%{}".format(sect[:18], pct, flag))
             lg.append("")
-            lg.append("Cash : {:.1f}%".format(cash_e / base * 100))
-            if cash_e < prof["cash_floor"]:
-                lg.append("⚠️ Sous le plancher {}EUR — tout signal ACHETER sera bloque.".format(
+            lg.append("<b>Top lignes :</b>")
+            for cle, montant in sorted(lignes_exp.items(), key=lambda x: -x[1])[:8]:
+                pct = montant / base * 100
+                flag = " ⚠️" if pct > prof["max_ligne"] * 100 else ""
+                lg.append("  {:<26} {:>5.1f}%{}".format(nom_ligne(cle)[:26], pct, flag))
+            lg.append("")
+            if cash_cto < prof["cash_floor"]:
+                lg.append("⚠️ Cash CTO sous le plancher {}EUR — signaux CTO bloques.".format(
                     prof["cash_floor"]))
-            absents = []
-            presents = set(secteurs_exp.keys())
-            for candidat in ["Sante", "Conso de base", "Assurance", "Banque", "Infrastructure"]:
-                if candidat not in presents:
-                    absents.append(candidat)
+            absents = [c for c in ["Sante", "Conso de base", "Assurance", "Banque", "Infrastructure"]
+                       if c not in set(secteurs_exp.keys())]
             if absents:
-                lg.append("")
                 lg.append("<b>Secteurs absents :</b> " + ", ".join(absents))
-                lg.append("<i>Le PEA ne compte pas ici — ce bot ne suit que le CTO.</i>")
+            lg.append("")
+            lg.append("<i>PER fige au {} — mise a jour : 'maj per MONTANT'. "
+                      "Le PER est bloque jusqu a la retraite : compte dans l exposition, "
+                      "jamais dans les signaux.</i>".format(PER_DATE_RELEVE))
             send_telegram("\n".join(lg))
             continue
 
-        # v11.2 : fiche valeur — "danone", "sanofi", "HO.PA"...
+        # v11.3 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+        if tl.startswith("maj per"):
+            parts = tl.split()
+            if len(parts) >= 3:
+                try:
+                    nouveau_total = float(parts[2].replace(",", "."))
+                    ancien_total = sum(p["valeur_eur"] for p in PER_POSITIONS.values())
+                    if ancien_total > 0:
+                        ratio = nouveau_total / ancien_total
+                        for isin in PER_POSITIONS:
+                            PER_POSITIONS[isin]["valeur_eur"] = round(
+                                PER_POSITIONS[isin]["valeur_eur"] * ratio, 2)
+                        m_per = load_memoire()
+                        m_per.setdefault("params", {})["per_total"] = nouveau_total
+                        save_memoire(m_per)
+                        send_telegram(
+                            "📄 PER mis a jour : <b>{:.2f}EUR</b> (x{:.3f})\n"
+                            "<i>Mise a l echelle proportionnelle — la repartition entre "
+                            "supports est conservee. Valeurs perdues au prochain redeploy "
+                            "si non patchees dans le code.</i>".format(nouveau_total, ratio))
+                except ValueError:
+                    send_telegram("Format : maj per 7561.25")
+            else:
+                total_per = sum(p["valeur_eur"] for p in PER_POSITIONS.values())
+                lg = ["📄 <b>PER — Epargne Volontaire Deductible</b>",
+                      "<i>Releve du {} — bloque jusqu a la retraite</i>".format(PER_DATE_RELEVE), ""]
+                for isin, pos in sorted(PER_POSITIONS.items(), key=lambda x: -x[1]["valeur_eur"]):
+                    lg.append("  {:<26} {:>8.0f}EUR".format(pos["nom"][:26], pos["valeur_eur"]))
+                lg.append("")
+                lg.append("Total : <b>{:.2f}EUR</b>".format(total_per))
+                lg.append("Pour actualiser : maj per MONTANT")
+                send_telegram("\n".join(lg))
+            continue
+
+        # v11.3 : fiche valeur — "danone", "sanofi", "HO.PA"...
         # Placee juste avant le dialogue libre : si le texte designe une valeur
         # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
         if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
@@ -1527,7 +1700,7 @@ def check_messages_telegram():
         else:
             web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-        send_telegram("🤖 <b>Agent v11.2 :</b>\n" + reponse)
+        send_telegram("🤖 <b>Agent v11.3 :</b>\n" + reponse)
 
 # ============================================================
 # GEOPOLITIQUE — Extraction et scoring
@@ -1802,7 +1975,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.2) -------------------------------
+# --- Persistance GitHub de la memoire (v11.3) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -1970,7 +2143,8 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     m = load_memoire()
-    cash = get_cash()
+    cash = get_cash("CTO")
+    cash_pea_a = get_cash("PEA")
 
     macro = []
     for d in donnees:
@@ -2033,9 +2207,11 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
 
     prompt = """Tu es l agent financier personnel de Matthieu. Raisonne comme un conseiller humain rigoureux : prudent, chiffre, jamais survendeur.
 
-PORTEFEUILLE (flat tax 30%, horizon 1 an, risque modere-eleve) :
+PORTEFEUILLE CTO (flat tax 30%, horizon 1 an, risque modere-eleve) :
 {positions}
-Cash : ~{cash:.0f}EUR | PV totale : {pv:+.0f}EUR
+Cash CTO : ~{cash:.0f}EUR | Cash PEA : ~{cash_pea:.0f}EUR | PV totale CTO : {pv:+.0f}EUR
+ENVELOPPES ETANCHES : le cash PEA ({cash_pea:.0f}EUR) ne peut PAS servir a acheter sur le CTO.
+Un PER de {per:.0f}EUR (ETF monde/US) existe mais est bloque : ne jamais proposer d arbitrage dessus.
 {div}
 
 MARCHE {moment} {date} :
@@ -2048,7 +2224,8 @@ SENTIMENT : {sentiment}
 {signaux}
 
 REGLES ABSOLUES INVIOLABLES :
-1. JAMAIS proposer d achat si cash ({cash:.0f}EUR) < prix de l action.
+1. JAMAIS proposer d achat CTO si le cash CTO ({cash:.0f}EUR) < prix de l action.
+   Le cash PEA n entre JAMAIS dans ce calcul.
 2. JAMAIS de fraction d action. Uniquement des entiers : 1, 2 ou 3.
 3. JAMAIS proposer achat si RSI > 65. RSI > 70 = SURACHAT. RSI < 30 = SURVENTE.
 4. JAMAIS proposer d achat sur une ligne soldee (quantite 0) : Orange, Safran, BNP, Capgemini, Airbus.
@@ -2079,6 +2256,8 @@ REPONDS EN 200 MOTS MAX :
 [RISQUE] 1 phrase""".format(
         positions="\n".join(positions[:12]),
         cash=cash,
+        cash_pea=cash_pea_a,
+        per=sum(x["valeur_eur"] for x in PER_POSITIONS.values()),
         pv=pv_tot,
         div=div_jours[:200] if div_jours else "Pas d alerte dividende",
         moment=moment.upper(),
@@ -2108,7 +2287,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.2
+# ANALYSE COMPLETE v11.3
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -2479,7 +2658,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.2 :</b>\n{}\n"
+           "🤖 <b>Agent v11.3 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Tape un nom de valeur (ex: danone) | 'expo' | 'risque offensif' | 'analyse' | 'cash X' | 'geo' | 'backtest'</i>").format(
         emoji_msg, titre, now,
@@ -2819,7 +2998,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.2 — diversification et fiche valeur")
+    print(" Agent Trading Matthieu v11.3 — enveloppes consolidees (CTO + PEA + PER)")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -2838,7 +3017,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.2 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.3 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
