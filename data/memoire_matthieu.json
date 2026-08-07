@@ -119,37 +119,13 @@
       "prix": 422.19,
       "rsi_signal": 77.2,
       "score_signal": 50
-    },
-    {
-      "date": "07/08/2026",
-      "action": "VENTE",
-      "valeur": "Thales",
-      "prix": 268.8,
-      "rsi_signal": 86.9,
-      "score_signal": 65
-    },
-    {
-      "date": "07/08/2026",
-      "action": "VENTE",
-      "valeur": "Microsoft",
-      "prix": 433.72,
-      "rsi_signal": 82.4,
-      "score_signal": 45
-    },
-    {
-      "date": "07/08/2026",
-      "action": "ACHAT",
-      "valeur": "SpaceX",
-      "prix": 99.71,
-      "rsi_signal": 44.0,
-      "score_signal": 45
     }
   ],
   "stats": {
     "bonnes": 0,
     "mauvaises": 0
   },
-  "dernier_scan": "07/08/2026 09:52",
+  "dernier_scan": "07/08/2026 10:22",
   "params": {
     "cash_dispo": 79.74
   },
