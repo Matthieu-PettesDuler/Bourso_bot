@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.3 — enveloppes consolidees (CTO + PEA + PER)
+Agent Trading Matthieu v11.5 — profil offensif et briques beta
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,26 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.3 :
+Nouveautes v11.5 :
+- Profil de risque OFFENSIF par defaut (taille jusqu a 5 titres, plancher cash 100EUR,
+  seuil de signal 45pts). Les filtres anti-contradiction sont inchanges : le risque
+  passe par la taille et le beta de l univers, jamais par des filtres plus permissifs.
+- Briques a beta eleve : Nasdaq 100 PEA, MSCI USA x2 PEA, S&P 500 PEA, small caps
+- 3USL (S&P 500 x3 WisdomTree) consultable avec encart pedagogique sur le reset
+  quotidien — jamais propose en signal : horizon emetteur 1 jour vs horizon 1 an
+- Beta indicatif du portefeuille affiche dans "expo"
+
+Heritage v11.4 :
+- Bloc RECOMMANDATION : verdict + confiance + colonnes POUR / CONTRE toujours
+  affichees (une reco qui n aurait que des arguments POUR serait un argumentaire
+  de vente, pas une aide a la decision)
+- Cache marche/news/capitol : une fiche valeur coute 1-2 appels reseau au lieu de ~10
+- Flux Reuters morts depuis 2023 remplaces (Les Echos, Le Monde, Boursorama x2)
+- Commande "diag" : teste RSS, CapitolTrades, yfinance et la persistance memoire
+- PV calculee aussi sur la poche PEA (elle etait ignoree)
+- Correction : troncature du set messages_traites (ids arbitraires -> plus recents)
+
+Heritage v11.3 :
 - Fiche valeur : taper "danone" ou "SAN.PA" sur Telegram renvoie score + positionnement
   (filtres applicables, taille compatible, poids sectoriel, impact flat tax)
 - Univers de diversification : sante, conso de base, assurance, banque, infrastructure,
@@ -46,7 +65,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.3 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.5 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -59,7 +78,11 @@ RISK_PROFILES = {
     "equilibre": {"max_actions": 3, "cash_floor": 200, "max_ligne": 0.25, "max_secteur": 0.45, "seuil_score": 50},
     "offensif":  {"max_actions": 5, "cash_floor": 100, "max_ligne": 0.30, "max_secteur": 0.55, "seuil_score": 45},
 }
-RISK_DEFAULT = "equilibre"
+# Profil actif par defaut. Matthieu a demande explicitement un reglage plus
+# offensif : taille de position jusqu a 5 titres, plancher de cash abaisse a
+# 100EUR, seuil de signal a 45pts. Les filtres anti-contradiction restent
+# identiques dans les trois profils — seule l exposition change.
+RISK_DEFAULT = "offensif"
 
 def get_risk_profile():
     """Retourne (nom, dict de parametres)."""
@@ -145,7 +168,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.3 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.5 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -167,6 +190,17 @@ SEUILS = {
     "PE500.PA":{"nom": "ETF S&P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
     "PSP5.PA": {"nom": "ETF Small Caps PEA","achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Small Caps"},
+
+    # ---- BRIQUES A BETA ELEVE v11.5 ----
+    # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
+    # de filtres. Ces supports montent ET baissent plus vite que le World.
+    "PANX.PA": {"nom": "ETF Nasdaq 100 PEA", "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF Tech",  "beta": 1.3},
+    "CL2.PA":  {"nom": "ETF MSCI USA x2",    "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF US",    "beta": 2.0, "levier": 2},
+    "ESE.PA":  {"nom": "ETF S&P 500 PEA BNP","achat": None, "vente": None, "type": "PEA",      "secteur": "ETF US",    "beta": 1.0},
+    # 3USL — levier x3 a reset QUOTIDIEN. Voir la note dans CORRELATIONS :
+    # horizon recommande par l emetteur = 1 JOUR, incompatible avec l horizon 1 an.
+    # Marque "levier" : consultable via fiche, mais jamais de signal ACHETER automatique.
+    "3USL.MI": {"nom": "WisdomTree S&P500 x3","achat": None, "vente": None, "type": "WATCH",   "secteur": "ETP Levier","beta": 3.0, "levier": 3},
     # CRYPTO — ETNs CoinShares Euronext
     "BITC.AS": {"nom": "CS Bitcoin",  "achat": 50.00, "vente": 120.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     "CETH.AS": {"nom": "CS Ethereum", "achat": 40.00, "vente": 100.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
@@ -233,6 +267,14 @@ CORRELATIONS = {
     "WPEA.PA":"iShares MSCI World Swap PEA (IE0002XZSHO1) = socle mondial, frais 0.20%, capitalisant. Replication synthetique par swap : risque de contrepartie + spread de swap en plus des frais affiches",
     "PE500.PA":"ETF S&P 500 eligible PEA = exposition US pure, redondant a ~70% avec un World",
     "PAEEM.PA":"ETF emergents PEA = ~30% Chine et forte pondération semi-conducteurs asiatiques. Pari macro, pas un socle",
+    "PANX.PA": "ETF Nasdaq 100 eligible PEA = tech US concentree, beta ~1.3. Monte plus vite que le World, baisse plus vite aussi. Recoupe deja Microsoft en portefeuille",
+    "CL2.PA":  "ETF MSCI USA a levier x2 quotidien, eligible PEA. Reset journalier : sur un marche qui oscille, la performance derive sous 2x celle de l indice. Tenable en tendance, couteux en range",
+    "ESE.PA":  "ETF S&P 500 BNP eligible PEA = exposition US pure, frais bas, redondant a ~70% avec un World",
+    "3USL.MI": ("WisdomTree S&P 500 3x Daily Leveraged (IE00B7Y34M31), cote a Milan. "
+                "FRAIS 3.80%/an, soit 19x le WPEA. Levier x3 a RESET QUOTIDIEN : l emetteur "
+                "indique lui-meme une duree de detention recommandee d UN JOUR. Sur -10% puis "
+                "+11.1% l indice revient a zero, le x3 finit a -6.7%. Non eligible PEA. "
+                "Incompatible avec un horizon 1 an — outil de trading, pas de portefeuille"),
     "PSP5.PA": "ETF small caps = beta plus eleve que les grandes capitalisations, brique offensive du socle indiciel",
     "BITC.AS": "CS Bitcoin ETP = correle Nasdaq 60-70%, signal risk-on/off. SPCX detient 18712 BTC en tresorerie → correlation SPCX/BTC",
     "CETH.AS": "CS Ethereum ETP = infra DeFi, staking inclus",
@@ -360,12 +402,16 @@ CAPITOL_TICKER_MAP = {
     "AAPL":  None,
 }
 
+# Les deux flux feeds.reuters.com ont ete arretes par Reuters en 2023 :
+# ils renvoyaient une erreur silencieuse depuis, d ou la "suspicion d echec"
+# jamais tranchee. Remplaces par des sources actives. Verifier avec "diag".
 RSS_FEEDS = [
-    {"url": "https://feeds.reuters.com/reuters/businessNews",  "label": "Reuters Business"},
-    {"url": "https://feeds.reuters.com/Reuters/worldNews",     "label": "Reuters Monde"},
-    {"url": "https://www.boursorama.com/rss/actu-societes",    "label": "Boursorama"},
-    {"url": "https://www.aljazeera.com/xml/rss/all.xml",      "label": "Al Jazeera"},
-    {"url": "https://feeds.feedburner.com/mf-investing",      "label": "Investing"},
+    {"url": "https://www.boursorama.com/rss/actu-societes",              "label": "Boursorama Societes"},
+    {"url": "https://www.boursorama.com/rss/actualites",                 "label": "Boursorama Actu"},
+    {"url": "https://services.lesechos.fr/rss/les-echos-finance-marches.xml", "label": "Les Echos Marches"},
+    {"url": "https://www.lemonde.fr/economie/rss_full.xml",              "label": "Le Monde Economie"},
+    {"url": "https://www.aljazeera.com/xml/rss/all.xml",                 "label": "Al Jazeera"},
+    {"url": "https://feeds.feedburner.com/mf-investing",                 "label": "Investing"},
 ]
 
 KEYWORDS_PORTEFEUILLE = ["orange", "bnp", "total", "capgemini", "airbus", "safran",
@@ -428,7 +474,18 @@ def enveloppe_de(ticker):
 # ============================================================
 # CAPITOL TRADES
 # ============================================================
-def get_capitol_trades():
+def get_capitol_trades(use_cache=True):
+    if use_cache:
+        c = cache_get("capitol", "capitol")
+        if c is not None:
+            return c
+    r = _get_capitol_trades_brut()
+    if use_cache:
+        cache_set("capitol", r)
+    return r
+
+
+def _get_capitol_trades_brut():
     trades = []
     try:
         url = "https://www.capitoltrades.com/trades?pageSize=96&page=1"
@@ -760,7 +817,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.3 : taille pilotee par le profil de risque.
+    """v11.5 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -1054,11 +1111,11 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.3 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.5 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
 def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
-    """v11.3 : exposition CONSOLIDEE sur les trois enveloppes.
+    """v11.5 : exposition CONSOLIDEE sur les trois enveloppes.
 
     Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
     Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
@@ -1120,6 +1177,190 @@ def nom_ligne(cle):
     return "{} ({})".format(nom, env) if env else nom
 
 
+# ============================================================
+# MOTEUR DE RECOMMANDATION v11.5
+#
+# Une recommandation honnete nomme ses propres faiblesses. Ce moteur rend
+# toujours les deux colonnes — POUR et CONTRE — meme quand le verdict est net.
+# Un bloc qui n aurait que des arguments POUR serait un argumentaire de vente,
+# pas une aide a la decision.
+# ============================================================
+def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
+    """Retourne un dict : action, confiance, pour[], contre[], executable, taille, prix."""
+    s = SEUILS.get(ticker, {})
+    rsi = d.get("rsi")
+    est_us = s.get("type") in ["CTO-US", "WATCH-US"]
+    cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
+    env = enveloppe_de(ticker)
+    cash = get_cash(env)
+    nom_prof, prof = get_risk_profile()
+    detenu_cto = bool(s.get("quantite"))
+    detenu_pea = bool(s.get("pea"))
+
+    pour, contre, bloquants = [], [], []
+    net = sa - sv
+
+    # --- Arguments techniques, des deux cotes ---
+    if rsi is not None:
+        if rsi < 30:   pour.append("RSI {:.0f} en survente".format(rsi))
+        elif rsi < 45: pour.append("RSI {:.0f} en zone basse".format(rsi))
+        elif rsi > 70: contre.append("RSI {:.0f} en surachat".format(rsi))
+        elif rsi > 55: contre.append("RSI {:.0f} au-dessus de la zone d achat".format(rsi))
+    if d.get("macd_croise") == "HAUSSIER": pour.append("MACD croisement haussier")
+    elif d.get("macd_croise") == "BAISSIER": contre.append("MACD croisement baissier")
+    if d.get("bb_signal") == "SURVENDU": pour.append("Bollinger bande basse")
+    elif d.get("bb_signal") == "SURCHETE": contre.append("Bollinger bande haute")
+    if d.get("vol_ratio", 1) > 1.5:
+        (pour if d["variation"] > 0 else contre).append(
+            "volume x{:.1f} confirme le mouvement".format(d["vol_ratio"]))
+    if geo_bonus >= 15:   pour.append("contexte geo {:+d}pts".format(geo_bonus))
+    elif geo_bonus <= -15: contre.append("contexte geo {:+d}pts".format(geo_bonus))
+
+    # --- Position et exposition ---
+    total, lignes_exp, secteurs_exp, _ = exposition_portefeuille()
+    base = total + get_cash("CTO") + get_cash("PEA")
+    sect = s.get("secteur", "Autre").split("/")[0]
+    poids_sect = (secteurs_exp.get(sect, 0) / base * 100) if base else 0
+    poids_ligne = ((lignes_exp.get(ticker + "|CTO", 0) + lignes_exp.get(ticker + "|PEA", 0))
+                   / base * 100) if base else 0
+
+    if poids_sect > prof["max_secteur"] * 100:
+        contre.append("secteur {} deja a {:.0f}% (plafond {:.0f}%)".format(
+            sect, poids_sect, prof["max_secteur"] * 100))
+    elif poids_sect < 3 and not (detenu_cto or detenu_pea):
+        pour.append("secteur {} quasi absent ({:.1f}%) — diversifie".format(sect, poids_sect))
+    if poids_ligne > prof["max_ligne"] * 100:
+        contre.append("ligne deja a {:.0f}% du patrimoine".format(poids_ligne))
+
+    # --- Filtres bloquants (identiques au scan) ---
+    if not detenu_cto and s.get("type") in ["CTO", "CTO-US"]:
+        bloquants.append("ligne soldee — pas de reouverture automatique")
+    if ticker == "TTE.PA":
+        wti = calcul_indicateurs("CL=F")
+        wv = wti.get("variation") if wti else None
+        if wv is None or wv <= 0:
+            bloquants.append("WTI non positif ({})".format(
+                "{:+.1f}%".format(wv) if wv is not None else "indispo"))
+        if rsi is not None and rsi >= 40:
+            bloquants.append("RSI {:.0f} >= 40".format(rsi))
+    # Produits a levier : reset quotidien incompatible avec l horizon 1 an de Matthieu.
+    # Consultables via la fiche, jamais proposes en signal automatique.
+    if s.get("levier"):
+        bloquants.append("produit a levier x{} (reset quotidien) — horizon emetteur 1 jour, "
+                         "incompatible avec ton horizon 1 an".format(s["levier"]))
+    if ticker in ["HO.PA", "AM.PA", "SAF.PA", "AIR.PA"] and rsi is not None and rsi > 30:
+        bloquants.append("RSI defense {:.0f} > 30".format(rsi))
+    if ticker in ["MSFT", "SPCX"] and rsi is not None and rsi > 65:
+        bloquants.append("RSI {:.0f} > 65".format(rsi))
+    if ticker == "SPCX" and cours_eur >= 112:
+        bloquants.append("cours >= seuil de renfort 112EUR")
+    if rsi is not None and rsi > 55 and net < 80:
+        bloquants.append("RSI {:.0f} > 55 sans signal fort".format(rsi))
+
+    taille = calcul_position_size(sa, cours_eur, cash)
+    engageable = max(0.0, cash - prof["cash_floor"])
+    if engageable < cours_eur:
+        bloquants.append("cash {} engageable {:.0f}EUR < {:.0f}EUR".format(env, engageable, cours_eur))
+    if base and taille:
+        poids_apres = (secteurs_exp.get(sect, 0) + cours_eur * taille) / base * 100
+        if poids_apres > prof["max_secteur"] * 100:
+            bloquants.append("{} passerait a {:.0f}% > plafond {:.0f}%".format(
+                sect, poids_apres, prof["max_secteur"] * 100))
+
+    # --- Stop-loss et prise de profit ---
+    alerte_pv = None
+    if detenu_cto and s.get("px_revient"):
+        pv_pct = (cours_eur - s["px_revient"]) / s["px_revient"] * 100
+        if pv_pct <= -15:
+            # Uniquement dans "contre" — l afficher deux fois n ajoute rien
+            contre.append("position a {:+.1f}% — sous ton stop-loss de -15%".format(pv_pct))
+        elif ticker == "SPCX" and pv_pct >= SPCX_PROFIT_PCT:
+            alerte_pv = "PV {:+.1f}% — seuil de prise de profit atteint".format(pv_pct)
+
+    # --- Verdict ---
+    if sv >= 50 and (detenu_cto or detenu_pea):
+        action = "ALLEGER"
+    elif bloquants:
+        action = "NE RIEN FAIRE"
+    elif taille > 0 and net >= prof["seuil_score"]:
+        action = "RENFORCER" if (detenu_cto or detenu_pea) else "OUVRIR"
+    else:
+        action = "NE RIEN FAIRE"
+
+    # --- Confiance : fondee sur la convergence, pas sur l enthousiasme ---
+    if action == "ALLEGER":
+        # Ici ce sont les arguments CONTRE qui fondent la decision
+        confiance = "elevee" if len(contre) >= 3 else ("moyenne" if len(contre) >= 2 else "faible")
+    elif bloquants:
+        confiance = "faible"
+    elif len(pour) >= 3 and len(contre) == 0:
+        confiance = "elevee"
+    elif len(pour) > len(contre):
+        confiance = "moyenne"
+    else:
+        confiance = "faible"
+
+    # Les bloquants filtrent les ACHATS : ils n ont aucun sens sur un ALLEGER,
+    # ou ils laissaient croire que la vente etait empechee par le manque de cash.
+    if action == "ALLEGER":
+        bloquants = []
+
+    return {
+        "action": action, "confiance": confiance,
+        "pour": pour, "contre": contre, "bloquants": bloquants,
+        "executable": (action == "ALLEGER") or (action in ["RENFORCER", "OUVRIR"] and not bloquants),
+        "taille": taille, "cours_eur": cours_eur, "enveloppe": env,
+        "cash_apres": max(0.0, cash - taille * cours_eur),
+        "limite": round(cours_eur * 1.005, 2),
+        "alerte_pv": alerte_pv, "net": net,
+        "vente_detail": _detail_vente(ticker, s, cours_eur) if action == "ALLEGER" else None,
+    }
+
+
+def _detail_vente(ticker, s, cours_eur):
+    """Chiffre une sortie : produit brut, flat tax sur la PV, net encaisse."""
+    parts = []
+    if s.get("quantite") and s.get("px_revient"):
+        q = s["quantite"]
+        brut = q * cours_eur
+        pv = (cours_eur - s["px_revient"]) * q
+        impot = max(0.0, pv) * 0.30
+        parts.append("CTO {} titres → brut {:.0f}EUR, flat tax {:.0f}EUR, net {:.0f}EUR".format(
+            q, brut, impot, brut - impot))
+    if s.get("pea", {}).get("quantite"):
+        q = s["pea"]["quantite"]
+        parts.append("PEA {:g} titres → {:.0f}EUR, non taxe hors retrait".format(q, q * cours_eur))
+    return "\n".join(parts) if parts else None
+
+
+def formatter_recommandation(reco, nom):
+    """Bloc Telegram. Les CONTRE sont toujours affiches, meme sur un verdict positif."""
+    emoji = {"OUVRIR": "🟢", "RENFORCER": "🟢", "ALLEGER": "🟠", "NE RIEN FAIRE": "⚪"}
+    pts = {"elevee": "●●●", "moyenne": "●●○", "faible": "●○○"}
+    L = ["🎯 <b>RECOMMANDATION</b>"]
+    if reco["executable"] and reco["action"] in ["OUVRIR", "RENFORCER"]:
+        L.append("{} <b>{} {} — {} titre(s) @ {}EUR</b>".format(
+            emoji[reco["action"]], reco["action"], nom, reco["taille"], reco["cours_eur"]))
+        L.append("Ordre limite a {}EUR | cout {:.0f}EUR | cash {} restant {:.0f}EUR".format(
+            reco["limite"], reco["taille"] * reco["cours_eur"],
+            reco["enveloppe"], reco["cash_apres"]))
+    elif reco["action"] == "ALLEGER":
+        L.append("{} <b>ALLEGER {}</b>".format(emoji["ALLEGER"], nom))
+        if reco.get("vente_detail"):
+            L.append(reco["vente_detail"])
+    else:
+        L.append("{} <b>Ne rien faire sur {}</b>".format(emoji["NE RIEN FAIRE"], nom))
+    L.append("Confiance : {} {}".format(pts.get(reco["confiance"], "●○○"), reco["confiance"]))
+    L.append("")
+    L.append("✅ <b>Pour :</b> " + (" | ".join(reco["pour"]) if reco["pour"] else "aucun argument technique"))
+    L.append("❌ <b>Contre :</b> " + (" | ".join(reco["contre"]) if reco["contre"] else "aucun signal negatif"))
+    if reco["bloquants"]:
+        L.append("🚫 <b>Bloquant :</b> " + " | ".join(reco["bloquants"]))
+    if reco["alerte_pv"]:
+        L.append("⚠️ " + reco["alerte_pv"])
+    return "\n".join(L)
+
+
 def resoudre_valeur(texte):
     """Trouve un ticker a partir d un nom libre tape sur Telegram.
     Retourne (ticker, source) ou (None, None)."""
@@ -1141,7 +1382,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.3 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.5 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1176,7 +1417,7 @@ def fiche_valeur(texte):
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
-    cash = get_cash(env)          # v11.3 : cash de la bonne enveloppe, jamais la somme
+    cash = get_cash(env)          # v11.5 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1207,7 +1448,7 @@ def fiche_valeur(texte):
         L.append("🏛 " + " | ".join(cap_detail[:2]))
     L.append("")
 
-    # --- Bloc positionnement : les regles de Matthieu, appliquees ---
+    # --- Bloc positionnement + recommandation ---
     L.append("<b>Positionnement</b>")
     detenu_cto = bool(s.get("quantite"))
     detenu_pea = bool(s.get("pea"))
@@ -1269,21 +1510,10 @@ def fiche_valeur(texte):
             blocages.append("exposition {} passerait a {:.0f}% > plafond {:.0f}%".format(
                 sect, poids_apres, prof["max_secteur"] * 100))
 
-    if blocages:
-        L.append("🚫 Bloquant : " + " | ".join(blocages))
-        L.append("<b>→ Pas d achat selon tes regles.</b>")
-    elif nb > 0:
-        L.append("✅ Aucun filtre bloquant.")
-        L.append("<b>→ Taille compatible : {} action(s) ≈ {:.0f}EUR</b> (profil {})".format(
-            nb, nb * cours_eur, nom_prof))
-        if base and (cours_eur * nb / base * 100) < 2:
-            L.append("⚠️ {:.1f}% du portefeuille : trop petit pour diversifier quoi que ce soit.".format(
-                cours_eur * nb / base * 100))
-    elif sa < prof["seuil_score"]:
-        L.append("→ Score {} sous le seuil du profil {} ({}pts) — pas de signal.".format(
-            sa, nom_prof, prof["seuil_score"]))
-    else:
-        L.append("→ Aucune taille compatible avec le cash disponible.")
+    # v11.5 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
+    if nb > 0 and not blocages and base and (cours_eur * nb / base * 100) < 2:
+        L.append("⚠️ {:.1f}% du patrimoine : trop petit pour diversifier quoi que ce soit.".format(
+            cours_eur * nb / base * 100))
 
     if s.get("type") in ["CTO-US", "WATCH-US"] or ticker in ["MSFT", "SPCX"]:
         L.append("📌 Ordre limite obligatoire.")
@@ -1296,13 +1526,30 @@ def fiche_valeur(texte):
         L.append("🛡 La poche PEA n est pas taxee tant qu il n y a pas de retrait "
                  "(17.2% de prelevements sociaux apres 5 ans, au lieu de 30%).")
 
+    # --- Encart levier : la decote de volatilite en clair ---
+    if s.get("levier"):
+        lev = s["levier"]
+        L.append("")
+        L.append("⚡ <b>PRODUIT A LEVIER x{}</b>".format(lev))
+        L.append("Reset quotidien : le levier s applique a la seance, pas a la periode.")
+        L.append("Exemple : indice -10% puis +11.1% → indice a zero, x{} a {:+.1f}%.".format(
+            lev, ((1 - 0.10 * lev) * (1 + 0.1111 * lev) - 1) * 100))
+        L.append("Sur un marche qui oscille, l ecart se creuse mecaniquement.")
+        L.append("En tendance nette et soutenue, il joue en ta faveur — c est le pari.")
+
+    # --- RECOMMANDATION ---
+    L.append("")
+    reco = construire_recommandation(ticker, d, sa, sv, geo_b)
+    L.append(formatter_recommandation(reco, nom))
+
     note = CORRELATIONS.get(ticker)
     if note:
         L.append("")
         L.append("<i>{}</i>".format(note[:230]))
 
     L.append("")
-    L.append("<i>Le bot calcule et cadre. La decision finale est la tienne.</i>")
+    L.append("<i>Recommandation calculee sur tes propres regles. "
+             "Elle ne remplace pas ta decision — verifie avant d executer.</i>")
     return "\n".join(L)
 
 
@@ -1331,7 +1578,9 @@ def check_messages_telegram():
             continue
         messages_traites.add(update_id)
         if len(messages_traites) > 100:
-            messages_traites = set(list(messages_traites)[-50:])
+            # Un set n est pas ordonne : list()[-50:] gardait 50 ids arbitraires
+            # et pouvait reouvrir la porte a des doublons. On garde les plus recents.
+            messages_traites = set(sorted(messages_traites)[-50:])
 
         msg = update.get("message", {})
         text = msg.get("text", "").strip()
@@ -1575,7 +1824,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lignes))
             continue
 
-        # v11.3 : profil de risque
+        # v11.5 : profil de risque
         if tl.startswith("risque"):
             parts = tl.split()
             if len(parts) >= 2:
@@ -1602,7 +1851,7 @@ def check_messages_telegram():
                                   n, prof["max_actions"], prof["cash_floor"]))
             continue
 
-        # v11.3 : exposition CONSOLIDEE (CTO + PEA + PER)
+        # v11.5 : exposition CONSOLIDEE (CTO + PEA + PER)
         if tl in ["expo", "exposition", "diversification", "repartition"]:
             send_telegram("⏳ Calcul de l exposition consolidee...")
             total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
@@ -1633,6 +1882,21 @@ def check_messages_telegram():
                 pct = montant / base * 100
                 flag = " ⚠️" if pct > prof["max_ligne"] * 100 else ""
                 lg.append("  {:<26} {:>5.1f}%{}".format(nom_ligne(cle)[:26], pct, flag))
+            # Beta indicatif : mesure si le portefeuille est reellement offensif
+            beta_pondere, poids_connus = 0.0, 0.0
+            for cle, montant in lignes_exp.items():
+                base_t = cle.partition("|")[0]
+                b = SEUILS.get(base_t, {}).get("beta")
+                if b is None and base_t in SEUILS:
+                    t_ = SEUILS[base_t].get("type", "")
+                    sect_ = SEUILS[base_t].get("secteur", "")
+                    b = 1.0 if t_ == "PEA" or sect_.startswith("ETF") else 1.1
+                if b:
+                    beta_pondere += b * montant; poids_connus += montant
+            if poids_connus:
+                lg.append("<b>Beta indicatif :</b> {:.2f} — profil <b>{}</b>".format(
+                    beta_pondere / poids_connus, nom_prof))
+                lg.append("<i>Sous 1.0 = plus calme que le marche, au-dessus = plus nerveux.</i>")
             lg.append("")
             if cash_cto < prof["cash_floor"]:
                 lg.append("⚠️ Cash CTO sous le plancher {}EUR — signaux CTO bloques.".format(
@@ -1648,7 +1912,18 @@ def check_messages_telegram():
             send_telegram("\n".join(lg))
             continue
 
-        # v11.3 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+        # v11.5 : diagnostic des sources
+        if tl in ["diag", "diagnostic", "sources", "health"]:
+            send_telegram("⏳ Test des sources en cours...")
+            send_telegram(diagnostic_sources())
+            continue
+
+        if tl in ["cache", "vider cache", "refresh"]:
+            n = vider_cache()
+            send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
+            continue
+
+        # v11.5 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
         if tl.startswith("maj per"):
             parts = tl.split()
             if len(parts) >= 3:
@@ -1682,7 +1957,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
             continue
 
-        # v11.3 : fiche valeur — "danone", "sanofi", "HO.PA"...
+        # v11.5 : fiche valeur — "danone", "sanofi", "HO.PA"...
         # Placee juste avant le dialogue libre : si le texte designe une valeur
         # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
         if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
@@ -1700,12 +1975,76 @@ def check_messages_telegram():
         else:
             web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-        send_telegram("🤖 <b>Agent v11.3 :</b>\n" + reponse)
+        send_telegram("🤖 <b>Agent v11.5 :</b>\n" + reponse)
+
+# ============================================================
+# DIAGNOSTIC SOURCES v11.5 — Telegram "diag"
+# Repond enfin a la question ouverte depuis des semaines : les flux
+# fonctionnent-ils vraiment, ou echouent-ils en silence ?
+# ============================================================
+def diagnostic_sources():
+    lignes = ["🩺 <b>DIAGNOSTIC DES SOURCES</b>", "━" * 24, "", "<b>Flux RSS :</b>"]
+    total_entrees = 0
+    for f in RSS_FEEDS:
+        try:
+            feed = feedparser.parse(f["url"])
+            n = len(feed.entries)
+            total_entrees += n
+            if n == 0:
+                lignes.append("  ❌ {} — 0 article".format(f["label"]))
+            else:
+                lignes.append("  ✅ {} — {} articles".format(f["label"], n))
+        except Exception as e:
+            lignes.append("  ❌ {} — {}".format(f["label"], str(e)[:40]))
+    lignes.append("  <i>Total : {} articles</i>".format(total_entrees))
+
+    lignes.append("")
+    lignes.append("<b>CapitolTrades :</b>")
+    try:
+        trades = get_capitol_trades(use_cache=False)
+        lignes.append("  {} {} trade(s) sur tes valeurs".format(
+            "✅" if trades else "⚠️", len(trades)))
+    except Exception as e:
+        lignes.append("  ❌ " + str(e)[:60])
+
+    lignes.append("")
+    lignes.append("<b>Donnees de marche (yfinance) :</b>")
+    for t in ["HO.PA", "MSFT", "SPCX", "CL=F"]:
+        d = calcul_indicateurs(t, use_cache=False)
+        if d:
+            lignes.append("  ✅ {} — {}EUR, RSI {}".format(t, d["cours"], d.get("rsi", "?")))
+        else:
+            lignes.append("  ❌ {} — pas de donnee".format(t))
+
+    lignes.append("")
+    lignes.append("<b>Persistance memoire :</b>")
+    if MEMOIRE_PERSISTANTE is True:
+        lignes.append("  ✅ GitHub OK — survit aux redeploys")
+    elif MEMOIRE_PERSISTANTE is False:
+        lignes.append("  ❌ NON PERSISTANTE — cash et memoire perdus au redeploy")
+    else:
+        lignes.append("  ⚠️ Etat inconnu (aucune ecriture depuis le demarrage)")
+
+    lignes.append("")
+    lignes.append("<b>Cache :</b> {} entrees | EUR/USD : {}".format(len(_CACHE), EUR_USD_RATE))
+    return "\n".join(lignes)
+
 
 # ============================================================
 # GEOPOLITIQUE — Extraction et scoring
 # ============================================================
-def get_news_et_geo():
+def get_news_et_geo(use_cache=True):
+    if use_cache:
+        c = cache_get("news", "news")
+        if c is not None:
+            return c
+    r = _get_news_et_geo_brut()
+    if use_cache:
+        cache_set("news", r)
+    return r
+
+
+def _get_news_et_geo_brut():
     news_p, news_m = [], []
     geo_scores = {}
     geo_themes = []
@@ -1766,6 +2105,32 @@ def formatter_capitol_telegram(trades):
 # ============================================================
 # INDICATEURS TECHNIQUES
 # ============================================================
+# ============================================================
+# CACHE MARCHE v11.5
+# fiche_valeur declenchait ~10 appels reseau (2 directs + 8 via exposition,
+# plus RSS et CapitolTrades). Avec le cache, une fiche coute 1 a 2 appels.
+# TTL court : les cours restent frais, on evite juste les rafales.
+# ============================================================
+_CACHE = {}
+CACHE_TTL = {"marche": 180, "news": 600, "capitol": 900}
+
+def cache_get(cle, categorie="marche"):
+    entree = _CACHE.get(cle)
+    if not entree: return None
+    age = (datetime.now(PARIS_TZ) - entree["t"]).total_seconds()
+    if age > CACHE_TTL.get(categorie, 180):
+        _CACHE.pop(cle, None)
+        return None
+    return entree["v"]
+
+def cache_set(cle, valeur):
+    _CACHE[cle] = {"v": valeur, "t": datetime.now(PARIS_TZ)}
+    return valeur
+
+def vider_cache():
+    n = len(_CACHE); _CACHE.clear(); return n
+
+
 def ema(closes, periode):
     if len(closes) < periode:
         return None
@@ -1775,7 +2140,18 @@ def ema(closes, periode):
         ema_val = c * k + ema_val * (1 - k)
     return round(ema_val, 4)
 
-def calcul_indicateurs(ticker):
+def calcul_indicateurs(ticker, use_cache=True):
+    if use_cache:
+        c = cache_get("md:" + ticker, "marche")
+        if c is not None:
+            return c
+    resultat = _calcul_indicateurs_brut(ticker)
+    if use_cache:
+        cache_set("md:" + ticker, resultat)
+    return resultat
+
+
+def _calcul_indicateurs_brut(ticker):
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="6mo", interval="1d")
@@ -1975,7 +2351,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.3) -------------------------------
+# --- Persistance GitHub de la memoire (v11.5) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -2114,14 +2490,18 @@ def get_eur_usd():
 
 EUR_USD_RATE = 1.08
 
-def calcul_pv(ticker, cours):
+def calcul_pv(ticker, cours, enveloppe="CTO"):
+    """PV latente d une poche. v11.5 : la poche PEA etait ignoree."""
     s = SEUILS.get(ticker, {})
+    cours_eur = round(cours / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else cours
+    if enveloppe.upper() == "PEA":
+        poche = s.get("pea") or {}
+        if not poche.get("px_revient") or not poche.get("quantite"):
+            return None
+        return round((cours_eur - poche["px_revient"]) * poche["quantite"], 2)
     if not s.get("px_revient") or not s.get("quantite"):
         return None
-    if s["type"] == "CTO-US":
-        cours_eur = round(cours / EUR_USD_RATE, 2)
-        return round((cours_eur - s["px_revient"]) * s["quantite"], 2)
-    return round((cours - s["px_revient"]) * s["quantite"], 2)
+    return round((cours_eur - s["px_revient"]) * s["quantite"], 2)
 
 def pv_totale(donnees):
     total = 0
@@ -2287,7 +2667,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.3
+# ANALYSE COMPLETE v11.5
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -2658,9 +3038,9 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.3 :</b>\n{}\n"
+           "🤖 <b>Agent v11.5 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Tape un nom de valeur (ex: danone) | 'expo' | 'risque offensif' | 'analyse' | 'cash X' | 'geo' | 'backtest'</i>").format(
+           "<i>Nom de valeur (ex: danone) → reco | 'expo' | 'diag' | 'risque offensif' | 'cash pea X' | 'backtest'</i>").format(
         emoji_msg, titre, now,
         sent_emoji, sentiment, pv, cash_dispo,
         " | ".join(macro_lines),
@@ -2998,7 +3378,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.3 — enveloppes consolidees (CTO + PEA + PER)")
+    print(" Agent Trading Matthieu v11.5 — profil offensif et briques beta")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -3017,7 +3397,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.3 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.5 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
