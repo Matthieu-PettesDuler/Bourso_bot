@@ -119,6 +119,14 @@
       "prix": 422.19,
       "rsi_signal": 77.2,
       "score_signal": 50
+    },
+    {
+      "date": "07/08/2026",
+      "action": "VENTE",
+      "valeur": "Thales",
+      "prix": 268.9,
+      "rsi_signal": 87.0,
+      "score_signal": 65
     }
   ],
   "stats": {
