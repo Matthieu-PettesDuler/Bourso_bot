@@ -104,6 +104,7 @@ Heritage v11.3 :
 
 import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
 import socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # v11.9 : feedparser n expose aucun parametre de timeout et utilise urllib,
 # qui attend INDEFINIMENT par defaut. Trois flux morts x ~8s d attente =
