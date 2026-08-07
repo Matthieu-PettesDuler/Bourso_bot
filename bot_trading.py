@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.5 — profil offensif et briques beta
+Agent Trading Matthieu v11.6 — auto-desensibilisation
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,17 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.5 :
+Nouveautes v11.6 :
+- AUTO-DESENSIBILISATION : le bot redescend seul vers un profil plus prudent
+  quand ses resultats se degradent (taux de succes < 40% OU repli > 10%).
+  Remontee possible mais lente : les deux criteres, 15+ decisions, 4 semaines.
+- Historique de valeur consolidee + calcul du drawdown depuis le plus haut
+- Controle quotidien du repli a 17h30, en plus de la revue hebdomadaire
+- VERROU sur le self-patch : auto_patch ne peut plus supprimer un filtre
+  anti-contradiction, un plancher de cash ou les bornes des profils de risque
+- Commande "perf" : taux de succes, repli, declencheurs, historique des bascules
+
+Heritage v11.5 :
 - Profil de risque OFFENSIF par defaut (taille jusqu a 5 titres, plancher cash 100EUR,
   seuil de signal 45pts). Les filtres anti-contradiction sont inchanges : le risque
   passe par la taille et le beta de l univers, jamais par des filtres plus permissifs.
@@ -65,7 +75,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.5 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.6 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -168,7 +178,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.5 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.6 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -191,7 +201,7 @@ SEUILS = {
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
     "PSP5.PA": {"nom": "ETF Small Caps PEA","achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Small Caps"},
 
-    # ---- BRIQUES A BETA ELEVE v11.5 ----
+    # ---- BRIQUES A BETA ELEVE v11.6 ----
     # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
     # de filtres. Ces supports montent ET baissent plus vite que le World.
     "PANX.PA": {"nom": "ETF Nasdaq 100 PEA", "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF Tech",  "beta": 1.3},
@@ -586,6 +596,38 @@ def github_push_file(nouveau_contenu, message_commit, sha):
         return False
 
 
+# ============================================================
+# GARDE-FOUS DU SELF-PATCH v11.6
+#
+# auto_patch() peut reecrire n importe quelle ligne et pousser sur GitHub,
+# ou Railway redeploie automatiquement. Sans verrou, une auto-optimisation
+# malheureuse pouvait supprimer les filtres anti-contradiction — precisement
+# ceux qui bloquaient l achat Capgemini sur ligne soldee et le faux signal WTI.
+# Ces motifs ne sont jamais modifiables automatiquement.
+# ============================================================
+FILTRES_PROTEGES = [
+    "ligne soldee",                    # pas de reouverture automatique
+    "raison_rejet",                    # moteur de rejet des signaux
+    "donnee_suspecte",                 # sanity-check des donnees
+    "RSI defense",                     # filtre defense
+    "WTI",                             # regle TotalEnergies
+    "levier",                          # blocage des produits a levier
+    "FILTRES_PROTEGES",                # le verrou lui-meme
+    "RISK_PROFILES",                   # bornes des profils de risque
+    "cash_floor",                      # plancher de cash
+]
+
+def patch_touche_zone_protegee(ancien_code, nouveau_code):
+    """Retourne (bloque, motif). Un patch ne peut pas retirer ou alterer
+    une zone protegee, meme si Claude le propose."""
+    for motif in FILTRES_PROTEGES:
+        av = ancien_code.count(motif)
+        ap = nouveau_code.count(motif)
+        if av > 0 and ap < av:
+            return True, "le patch supprime ou reduit '{}' ({} -> {})".format(motif, av, ap)
+    return False, ""
+
+
 def valider_syntaxe_python(code):
     import ast
     try:
@@ -612,6 +654,16 @@ def auto_patch(description_patch, ancien_code, nouveau_code, raison="auto-optimi
         print("[PATCH] Ancien code non trouve dans le fichier")
         return False
     nouveau_fichier = code_actuel.replace(ancien_code, nouveau_code, 1)
+
+    bloque, motif = patch_touche_zone_protegee(code_actuel, nouveau_fichier)
+    if bloque:
+        msg = "[PATCH] REFUSE — zone protegee : " + motif
+        print(msg)
+        send_telegram("🔒 <b>Patch refuse</b> — il touche a un garde-fou :\n{}\n\n"
+                      "<i>Les filtres anti-contradiction ne sont pas modifiables "
+                      "automatiquement. Pour y toucher, edite le fichier a la main.</i>".format(motif))
+        return False
+
     ok, erreur = valider_syntaxe_python(nouveau_fichier)
     if not ok:
         msg = "[PATCH] ERREUR SYNTAXE — patch annule : " + erreur
@@ -817,7 +869,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.5 : taille pilotee par le profil de risque.
+    """v11.6 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -1111,11 +1163,11 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.5 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.6 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
 def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
-    """v11.5 : exposition CONSOLIDEE sur les trois enveloppes.
+    """v11.6 : exposition CONSOLIDEE sur les trois enveloppes.
 
     Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
     Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
@@ -1178,7 +1230,7 @@ def nom_ligne(cle):
 
 
 # ============================================================
-# MOTEUR DE RECOMMANDATION v11.5
+# MOTEUR DE RECOMMANDATION v11.6
 #
 # Une recommandation honnete nomme ses propres faiblesses. Ce moteur rend
 # toujours les deux colonnes — POUR et CONTRE — meme quand le verdict est net.
@@ -1382,7 +1434,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.5 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.6 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1417,7 +1469,7 @@ def fiche_valeur(texte):
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
-    cash = get_cash(env)          # v11.5 : cash de la bonne enveloppe, jamais la somme
+    cash = get_cash(env)          # v11.6 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1510,7 +1562,7 @@ def fiche_valeur(texte):
             blocages.append("exposition {} passerait a {:.0f}% > plafond {:.0f}%".format(
                 sect, poids_apres, prof["max_secteur"] * 100))
 
-    # v11.5 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
+    # v11.6 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
     if nb > 0 and not blocages and base and (cours_eur * nb / base * 100) < 2:
         L.append("⚠️ {:.1f}% du patrimoine : trop petit pour diversifier quoi que ce soit.".format(
             cours_eur * nb / base * 100))
@@ -1824,7 +1876,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lignes))
             continue
 
-        # v11.5 : profil de risque
+        # v11.6 : profil de risque
         if tl.startswith("risque"):
             parts = tl.split()
             if len(parts) >= 2:
@@ -1851,7 +1903,7 @@ def check_messages_telegram():
                                   n, prof["max_actions"], prof["cash_floor"]))
             continue
 
-        # v11.5 : exposition CONSOLIDEE (CTO + PEA + PER)
+        # v11.6 : exposition CONSOLIDEE (CTO + PEA + PER)
         if tl in ["expo", "exposition", "diversification", "repartition"]:
             send_telegram("⏳ Calcul de l exposition consolidee...")
             total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
@@ -1912,7 +1964,47 @@ def check_messages_telegram():
             send_telegram("\n".join(lg))
             continue
 
-        # v11.5 : diagnostic des sources
+        # v11.6 : suivi de performance et ajustement automatique
+        if tl in ["perf", "performance", "risque auto", "ajustement"]:
+            resultats = backtest_decisions()
+            n = len(resultats)
+            bons = sum(1 for r in resultats if r.get("bon"))
+            taux = round(bons / n * 100) if n else None
+            dd, pic, act = calcul_drawdown()
+            nom_p, prof_p = get_risk_profile()
+            m_p = load_memoire()
+            S = SEUILS_AJUSTEMENT
+            lg = ["📈 <b>PERFORMANCE ET RISQUE</b>", "━" * 24, "",
+                  "Profil actuel : <b>{}</b>".format(nom_p)]
+            if taux is not None:
+                lg.append("Taux de succes : <b>{}%</b> ({} bonnes / {} decisions)".format(taux, bons, n))
+            else:
+                lg.append("Taux de succes : pas encore de decision evaluee")
+            if dd is not None:
+                lg.append("Repli depuis le plus haut : <b>{:.1f}%</b> ({:.0f}EUR → {:.0f}EUR)".format(dd, pic, act))
+            else:
+                lg.append("Repli : historique insuffisant (1re photo au prochain controle)")
+            lg.append("")
+            lg.append("<b>Declencheurs automatiques :</b>")
+            lg.append("  ↓ Desensibilisation si taux &lt;{}% ({}+ decisions) OU repli &gt;{}%".format(
+                S["taux_descente"], S["min_decisions_descente"], S["drawdown_descente"]))
+            lg.append("  ↑ Montee si taux &gt;{}% ({}+ decisions) ET repli &lt;{}%, apres {} semaines".format(
+                S["taux_montee"], S["min_decisions_montee"], S["drawdown_montee"], S["semaines_avant_montee"]))
+            bascules = m_p.get("historique_bascules", [])
+            if bascules:
+                lg.append("")
+                lg.append("<b>Derniers ajustements :</b>")
+                for b in bascules[-3:]:
+                    lg.append("  {} : {} → {} ({})".format(
+                        b.get("date", "?"), b.get("de", "?"), b.get("vers", "?"),
+                        (b.get("motifs") or ["?"])[0][:50]))
+            lg.append("")
+            lg.append("<i>Descente rapide sur un seul critere, remontee lente sur les deux. "
+                      "Perdre doit couter plus vite que regagner de la confiance.</i>")
+            send_telegram("\n".join(lg))
+            continue
+
+        # v11.6 : diagnostic des sources
         if tl in ["diag", "diagnostic", "sources", "health"]:
             send_telegram("⏳ Test des sources en cours...")
             send_telegram(diagnostic_sources())
@@ -1923,7 +2015,7 @@ def check_messages_telegram():
             send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
             continue
 
-        # v11.5 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+        # v11.6 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
         if tl.startswith("maj per"):
             parts = tl.split()
             if len(parts) >= 3:
@@ -1957,7 +2049,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
             continue
 
-        # v11.5 : fiche valeur — "danone", "sanofi", "HO.PA"...
+        # v11.6 : fiche valeur — "danone", "sanofi", "HO.PA"...
         # Placee juste avant le dialogue libre : si le texte designe une valeur
         # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
         if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
@@ -1975,10 +2067,10 @@ def check_messages_telegram():
         else:
             web_actu = recherche_web_active()
         reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-        send_telegram("🤖 <b>Agent v11.5 :</b>\n" + reponse)
+        send_telegram("🤖 <b>Agent v11.6 :</b>\n" + reponse)
 
 # ============================================================
-# DIAGNOSTIC SOURCES v11.5 — Telegram "diag"
+# DIAGNOSTIC SOURCES v11.6 — Telegram "diag"
 # Repond enfin a la question ouverte depuis des semaines : les flux
 # fonctionnent-ils vraiment, ou echouent-ils en silence ?
 # ============================================================
@@ -2106,7 +2198,7 @@ def formatter_capitol_telegram(trades):
 # INDICATEURS TECHNIQUES
 # ============================================================
 # ============================================================
-# CACHE MARCHE v11.5
+# CACHE MARCHE v11.6
 # fiche_valeur declenchait ~10 appels reseau (2 directs + 8 via exposition,
 # plus RSS et CapitolTrades). Avec le cache, une fiche coute 1 a 2 appels.
 # TTL court : les cours restent frais, on evite juste les rafales.
@@ -2351,7 +2443,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.5) -------------------------------
+# --- Persistance GitHub de la memoire (v11.6) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -2491,7 +2583,7 @@ def get_eur_usd():
 EUR_USD_RATE = 1.08
 
 def calcul_pv(ticker, cours, enveloppe="CTO"):
-    """PV latente d une poche. v11.5 : la poche PEA etait ignoree."""
+    """PV latente d une poche. v11.6 : la poche PEA etait ignoree."""
     s = SEUILS.get(ticker, {})
     cours_eur = round(cours / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else cours
     if enveloppe.upper() == "PEA":
@@ -2667,7 +2759,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.5
+# ANALYSE COMPLETE v11.6
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -3038,9 +3130,9 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.5 :</b>\n{}\n"
+           "🤖 <b>Agent v11.6 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
-           "<i>Nom de valeur (ex: danone) → reco | 'expo' | 'diag' | 'risque offensif' | 'cash pea X' | 'backtest'</i>").format(
+           "<i>Nom de valeur → reco | 'expo' | 'perf' | 'diag' | 'risque X' | 'cash pea X'</i>").format(
         emoji_msg, titre, now,
         sent_emoji, sentiment, pv, cash_dispo,
         " | ".join(macro_lines),
@@ -3313,7 +3405,15 @@ Reponds en JSON strict (sans markdown) :
 
 
 def auto_optimisation_avec_patch():
-    """v11 : taux d echec calcule sur le backtest reel, plus de champ fantome."""
+    """v11.6 : photo de valeur -> ajustement du profil -> optimisation des seuils.
+    L ordre compte : le profil doit etre reajuste AVANT que les seuils soient
+    optimises, sinon on optimise des parametres qu on vient de remplacer."""
+    historiser_valeur()
+
+    message_ajust = auto_ajustement_risque()
+    if message_ajust:
+        send_telegram(message_ajust)
+
     auto_optimisation()
     if not GITHUB_TOKEN:
         return
@@ -3344,6 +3444,142 @@ def auto_optimisation_avec_patch():
                 "Suggestion : {}".format(taux_echec * 100, suggestion))
         except Exception as e:
             print("[AUTO-OPTIM PATCH] " + str(e))
+
+
+# ============================================================
+# AUTO-DESENSIBILISATION v11.6
+#
+# Le bot mesure ses propres resultats et redescend TOUT SEUL vers un profil
+# plus prudent quand ils se degradent. C est le mecanisme demande : ne plus
+# avoir a redemander un reajustement manuel.
+#
+# Deux declencheurs, volontairement asymetriques :
+#  - descente RAPIDE (un seul critere suffit : taux d echec OU drawdown)
+#  - remontee LENTE (les deux criteres, sur plus de decisions, apres 4 semaines)
+# Perdre de l argent doit couter plus vite que regagner de la confiance.
+# ============================================================
+ECHELLE_RISQUE = ["prudent", "equilibre", "offensif"]
+
+SEUILS_AJUSTEMENT = {
+    "min_decisions_descente": 8,
+    "min_decisions_montee":   15,
+    "taux_descente":          40,    # taux de succes sous lequel on desensibilise
+    "taux_montee":            65,
+    "drawdown_descente":      10.0,  # % depuis le plus haut
+    "drawdown_montee":         4.0,
+    "semaines_avant_montee":   4,
+}
+
+def historiser_valeur(donnees_ok=None):
+    """Photo hebdomadaire de la valeur consolidee, pour mesurer le drawdown."""
+    try:
+        total, _, _, _ = exposition_portefeuille(donnees_ok)
+        valeur = total + get_cash("CTO") + get_cash("PEA")
+        m = load_memoire()
+        hist = m.get("historique_valeur", [])
+        aujourdhui = datetime.now(PARIS_TZ).strftime("%Y-%m-%d")
+        if hist and hist[-1].get("date") == aujourdhui:
+            hist[-1]["valeur"] = round(valeur, 2)
+        else:
+            hist.append({"date": aujourdhui, "valeur": round(valeur, 2)})
+        m["historique_valeur"] = hist[-104:]        # ~2 ans d historique hebdo
+        save_memoire(m)
+        return valeur
+    except Exception as e:
+        print("[HISTORIQUE VALEUR] " + str(e))
+        return None
+
+
+def calcul_drawdown():
+    """Ecart en % entre la valeur actuelle et le plus haut historique."""
+    m = load_memoire()
+    hist = m.get("historique_valeur", [])
+    if len(hist) < 2:
+        return None, None, None
+    # Tri explicite par date : ne jamais supposer que l historique est ordonne.
+    # Une memoire fusionnee depuis plusieurs surfaces peut arriver dans le desordre,
+    # et "la derniere ligne" ne serait alors pas la valeur actuelle.
+    hist = sorted([h for h in hist if h.get("valeur") and h.get("date")],
+                  key=lambda h: h["date"])
+    valeurs = [h["valeur"] for h in hist]
+    if len(valeurs) < 2:
+        return None, None, None
+    pic = max(valeurs)
+    actuel = valeurs[-1]
+    dd = (actuel - pic) / pic * 100 if pic else 0.0
+    return round(dd, 2), round(pic, 2), round(actuel, 2)
+
+
+def auto_ajustement_risque():
+    """Fait descendre (ou remonter) le profil selon les resultats reels.
+    Retourne un texte explicatif, ou None si rien ne change."""
+    m = load_memoire()
+    params = m.setdefault("params", {})
+    profil_actuel = params.get("profil_risque", RISK_DEFAULT)
+    idx = ECHELLE_RISQUE.index(profil_actuel) if profil_actuel in ECHELLE_RISQUE else 1
+
+    resultats = backtest_decisions()
+    n = len(resultats)
+    bons = sum(1 for r in resultats if r.get("bon"))
+    taux = round(bons / n * 100) if n else None
+    dd, pic, actuel = calcul_drawdown()
+
+    S = SEUILS_AJUSTEMENT
+    derniere = params.get("derniere_bascule_risque")
+    semaines_depuis = None
+    if derniere:
+        try:
+            d0 = datetime.strptime(derniere, "%Y-%m-%d").date()
+            semaines_depuis = (date.today() - d0).days / 7
+        except Exception:
+            semaines_depuis = None
+
+    motifs = []
+    nouvelle_idx = idx
+
+    # --- Descente : un seul critere suffit ---
+    if taux is not None and n >= S["min_decisions_descente"] and taux < S["taux_descente"]:
+        nouvelle_idx = max(0, idx - 1)
+        motifs.append("taux de succes {}% sur {} decisions (seuil {}%)".format(
+            taux, n, S["taux_descente"]))
+    if dd is not None and dd <= -S["drawdown_descente"]:
+        nouvelle_idx = max(0, idx - 1)
+        motifs.append("repli de {:.1f}% depuis le plus haut ({:.0f}EUR -> {:.0f}EUR)".format(
+            dd, pic, actuel))
+
+    # --- Montee : les deux criteres, et seulement apres un delai ---
+    if nouvelle_idx == idx and taux is not None and n >= S["min_decisions_montee"]:
+        assez_attendu = (semaines_depuis is None or semaines_depuis >= S["semaines_avant_montee"])
+        if (taux >= S["taux_montee"] and dd is not None
+                and dd >= -S["drawdown_montee"] and assez_attendu):
+            nouvelle_idx = min(len(ECHELLE_RISQUE) - 1, idx + 1)
+            motifs.append("taux {}% sur {} decisions et repli contenu a {:.1f}%".format(
+                taux, n, dd))
+
+    if nouvelle_idx == idx or not motifs:
+        return None
+
+    nouveau = ECHELLE_RISQUE[nouvelle_idx]
+    sens = "DESENSIBILISATION" if nouvelle_idx < idx else "MONTEE EN RISQUE"
+    params["profil_risque"] = nouveau
+    params["derniere_bascule_risque"] = date.today().strftime("%Y-%m-%d")
+    hist_b = m.get("historique_bascules", [])
+    hist_b.append({"date": params["derniere_bascule_risque"], "de": profil_actuel,
+                   "vers": nouveau, "motifs": motifs, "taux": taux, "drawdown": dd})
+    m["historique_bascules"] = hist_b[-20:]
+    save_memoire(m)
+
+    p = RISK_PROFILES[nouveau]
+    return ("⚖️ <b>{}</b>\n"
+            "Profil <b>{}</b> → <b>{}</b>\n"
+            "Motif : {}\n\n"
+            "Nouveaux reglages : taille max {} titres | plancher cash {}EUR | "
+            "plafond secteur {:.0f}% | seuil de signal {}pts\n"
+            "<i>Ajustement automatique fonde sur tes resultats reels. "
+            "Pour forcer : risque {}</i>").format(
+        sens, profil_actuel, nouveau, " | ".join(motifs),
+        p["max_actions"], p["cash_floor"], p["max_secteur"] * 100, p["seuil_score"],
+        " | risque ".join(ECHELLE_RISQUE))
 
 
 def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
@@ -3378,7 +3614,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.5 — profil offensif et briques beta")
+    print(" Agent Trading Matthieu v11.6 — auto-desensibilisation")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -3397,7 +3633,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.5 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.6 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
@@ -3413,6 +3649,7 @@ if __name__ == "__main__":
     dernier_eur_usd    = datetime.now(PARIS_TZ)
     dernier_optim      = datetime.now(PARIS_TZ) - timedelta(days=1)
     dernier_decouverte = datetime.now(PARIS_TZ) - timedelta(days=1)
+    dernier_controle_dd = datetime.now(PARIS_TZ) - timedelta(days=1)
 
     INTERVALLE_SCAN    = 30
     INTERVALLE_EUR_USD = 60
@@ -3429,6 +3666,20 @@ if __name__ == "__main__":
             else:
                 print("[SCAN] {} — marches fermes, silence".format(
                     maintenant.strftime("%H:%M")))
+
+        # v11.6 : controle quotidien du repli. L ajustement hebdomadaire est trop
+        # lent si le portefeuille decroche en pleine semaine.
+        est_1730 = maintenant.hour == 17 and maintenant.minute >= 30
+        pas_verifie_auj = dernier_controle_dd.date() < maintenant.date()
+        if est_1730 and pas_verifie_auj and maintenant.weekday() < 5:
+            dernier_controle_dd = maintenant
+            historiser_valeur()
+            dd_j, pic_j, act_j = calcul_drawdown()
+            if dd_j is not None and dd_j <= -SEUILS_AJUSTEMENT["drawdown_descente"]:
+                msg_ajust = auto_ajustement_risque()
+                if msg_ajust:
+                    send_telegram("🚨 Repli de {:.1f}% detecte en cours de semaine.\n\n".format(dd_j)
+                                  + msg_ajust)
 
         minutes_depuis_eur = (maintenant - dernier_eur_usd).total_seconds() / 60
         if minutes_depuis_eur >= INTERVALLE_EUR_USD:
