@@ -127,6 +127,14 @@
       "prix": 267.5,
       "rsi_signal": 86.7,
       "score_signal": 65
+    },
+    {
+      "date": "07/08/2026",
+      "action": "VENTE",
+      "valeur": "Schneider Electric",
+      "prix": 301.4,
+      "rsi_signal": 76.3,
+      "score_signal": 55
     }
   ],
   "stats": {
