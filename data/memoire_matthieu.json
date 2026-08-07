@@ -170,5 +170,11 @@
       "taux_succes": 14,
       "ajustements": []
     }
+  ],
+  "historique_valeur": [
+    {
+      "date": "2026-08-07",
+      "valeur": 45815.55
+    }
   ]
 }
