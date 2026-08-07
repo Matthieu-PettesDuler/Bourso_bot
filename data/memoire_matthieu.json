@@ -127,6 +127,14 @@
       "prix": 268.8,
       "rsi_signal": 86.9,
       "score_signal": 65
+    },
+    {
+      "date": "07/08/2026",
+      "action": "VENTE",
+      "valeur": "Microsoft",
+      "prix": 433.72,
+      "rsi_signal": 82.4,
+      "score_signal": 45
     }
   ],
   "stats": {
