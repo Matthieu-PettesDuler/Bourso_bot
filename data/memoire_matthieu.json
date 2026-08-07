@@ -123,9 +123,9 @@
     {
       "date": "07/08/2026",
       "action": "VENTE",
-      "valeur": "Thales",
-      "prix": 267.9,
-      "rsi_signal": 86.1,
+      "valeur": "Microsoft",
+      "prix": 433.72,
+      "rsi_signal": 82.4,
       "score_signal": 45
     }
   ],
