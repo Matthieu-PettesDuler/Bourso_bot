@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.9 — fin de la boucle de redeploiement
+Agent Trading Matthieu v11.9.1 — fin de la boucle de redeploiement
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,15 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.9 :
+Nouveautes v11.9.1 :
+- BUG CRITIQUE CORRIGE : "ETF S&P 500 PEA" (x2) et "WisdomTree S&P500 x3"
+  contenaient un '&' brut, invalide en HTML Telegram. Consequence : la fiche
+  de ces 3 valeurs etait calculee normalement puis REJETEE EN SILENCE par
+  l API Telegram — aucune exception, aucun message d erreur, rien n apparait.
+  Corrige a la source (S&amp;P) + echappement automatique dans send_telegram()
+  pour empecher toute recidive future, quelle que soit la valeur concernee.
+
+Heritage v11.9 :
 - CAUSE DU "bot qui ne repond plus" identifiee et corrigee. Deux facteurs :
   1) feedparser n a AUCUN timeout par defaut : 3 flux morts x ~8s = ~25s de
      gel a chaque appel, pendant lesquels la boucle Telegram ne tourne pas.
@@ -39,7 +47,7 @@ Heritage v11.8 :
   immediat car ils doivent survivre a un redeploy.
   Teste : 6 scans -> 1 commit au lieu de 6.
 
-Heritage v11.9 :
+Heritage v11.9.1 :
 - FILET DE SECURITE GLOBAL : tout le traitement d un message (les ~30 commandes
   et le dialogue libre) est desormais enveloppe dans un seul try/except. Avant
   ce patch, une exception NON PREVUE n importe ou dans cette chaine faisait
@@ -102,11 +110,10 @@ Heritage v11.3 :
 - Plafonds d exposition sectorielle integres aux blocages d achat
 """
 
-import os, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
+import os, re, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
 import socket
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# v11.9 : feedparser n expose aucun parametre de timeout et utilise urllib,
+# v11.9.1 : feedparser n expose aucun parametre de timeout et utilise urllib,
 # qui attend INDEFINIMENT par defaut. Trois flux morts x ~8s d attente =
 # ~24s de blocage a chaque appel, pendant lesquels la boucle Telegram est
 # gelee et le bot semble ne plus repondre du tout.
@@ -132,7 +139,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.9 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.9.1 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -235,7 +242,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.9 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.9.1 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -254,20 +261,20 @@ SEUILS = {
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe",
                 "pea": {"quantite": 6.6600,  "px_revient": 122.55, "valeur_eur": 891.17}},
     # PEA — briques de diversification (zones/segments absents)
-    "PE500.PA":{"nom": "ETF S&P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
+    "PE500.PA":{"nom": "ETF S&amp;P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
     "PSP5.PA": {"nom": "ETF Small Caps PEA","achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Small Caps"},
 
-    # ---- BRIQUES A BETA ELEVE v11.9 ----
+    # ---- BRIQUES A BETA ELEVE v11.9.1 ----
     # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
     # de filtres. Ces supports montent ET baissent plus vite que le World.
     "PANX.PA": {"nom": "ETF Nasdaq 100 PEA", "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF Tech",  "beta": 1.3},
     "CL2.PA":  {"nom": "ETF MSCI USA x2",    "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF US",    "beta": 2.0, "levier": 2},
-    "ESE.PA":  {"nom": "ETF S&P 500 PEA BNP","achat": None, "vente": None, "type": "PEA",      "secteur": "ETF US",    "beta": 1.0},
+    "ESE.PA":  {"nom": "ETF S&amp;P 500 PEA BNP","achat": None, "vente": None, "type": "PEA",      "secteur": "ETF US",    "beta": 1.0},
     # 3USL — levier x3 a reset QUOTIDIEN. Voir la note dans CORRELATIONS :
     # horizon recommande par l emetteur = 1 JOUR, incompatible avec l horizon 1 an.
     # Marque "levier" : consultable via fiche, mais jamais de signal ACHETER automatique.
-    "3USL.MI": {"nom": "WisdomTree S&P500 x3","achat": None, "vente": None, "type": "WATCH",   "secteur": "ETP Levier","beta": 3.0, "levier": 3},
+    "3USL.MI": {"nom": "WisdomTree S&amp;P500 x3","achat": None, "vente": None, "type": "WATCH",   "secteur": "ETP Levier","beta": 3.0, "levier": 3},
     # CRYPTO — ETNs CoinShares Euronext
     "BITC.AS": {"nom": "CS Bitcoin",  "achat": 50.00, "vente": 120.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     "CETH.AS": {"nom": "CS Ethereum", "achat": 40.00, "vente": 100.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
@@ -657,7 +664,7 @@ def github_push_file(nouveau_contenu, message_commit, sha):
 
 
 # ============================================================
-# GARDE-FOUS DU SELF-PATCH v11.9
+# GARDE-FOUS DU SELF-PATCH v11.9.1
 #
 # auto_patch() peut reecrire n importe quelle ligne et pousser sur GitHub,
 # ou Railway redeploie automatiquement. Sans verrou, une auto-optimisation
@@ -929,7 +936,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.9 : taille pilotee par le profil de risque.
+    """v11.9.1 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -1175,7 +1182,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
         cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], cours_eur, pv))
 
-    # v11.9 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
+    # v11.9.1 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
     # on va chercher son cours REEL et on l injecte explicitement. Sans ca,
     # le modele n a que le portefeuille detenu et invente un prix.
     tickers_cites = detecter_tickers_mentionnes(question_user)
@@ -1214,6 +1221,12 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
 # TELEGRAM
 # ============================================================
 def send_telegram(message):
+    # v11.9.1.1 : un '&' isole (hors entite HTML valide) fait REJETER tout le
+    # message par l API Telegram en mode HTML, sans exception cote bot — le
+    # message disparait juste, silencieusement. Trois noms de valeurs (ETF
+    # S&P 500 x2, WisdomTree S&P500 x3) en etaient victimes. Corrige a la
+    # source dans SEUILS, et verrouille ici pour toute occurrence future.
+    message = re.sub(r'&(?!amp;|lt;|gt;|quot;|#\d+;)', '&amp;', message)
     url = "https://api.telegram.org/bot" + str(TELEGRAM_TOKEN) + "/sendMessage"
     chunks = []
     while len(message) > 4000:
@@ -1254,11 +1267,11 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.9 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.9.1 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
 def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
-    """v11.9 : exposition CONSOLIDEE sur les trois enveloppes.
+    """v11.9.1 : exposition CONSOLIDEE sur les trois enveloppes.
 
     Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
     Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
@@ -1321,7 +1334,7 @@ def nom_ligne(cle):
 
 
 # ============================================================
-# MOTEUR DE RECOMMANDATION v11.9
+# MOTEUR DE RECOMMANDATION v11.9.1
 #
 # Une recommandation honnete nomme ses propres faiblesses. Ce moteur rend
 # toujours les deux colonnes — POUR et CONTRE — meme quand le verdict est net.
@@ -1538,7 +1551,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.9 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.9.1 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1556,7 +1569,7 @@ def fiche_valeur(texte):
                     nom, ticker, d.get("variation", 0))
 
     # --- Scores enrichis geo + Capitol ---
-    # v11.9 : CACHE UNIQUEMENT. La fiche doit repondre en 1-2s. Si le geo n est
+    # v11.9.1 : CACHE UNIQUEMENT. La fiche doit repondre en 1-2s. Si le geo n est
     # pas deja en cache, on s en passe plutot que de bloquer la boucle Telegram
     # pendant ~25s a interroger des flux RSS. Le scan periodique remplit le cache.
     geo_scores = {}
@@ -1580,7 +1593,7 @@ def fiche_valeur(texte):
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
-    cash = get_cash(env)          # v11.9 : cash de la bonne enveloppe, jamais la somme
+    cash = get_cash(env)          # v11.9.1 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1673,7 +1686,7 @@ def fiche_valeur(texte):
             blocages.append("exposition {} passerait a {:.0f}% > plafond {:.0f}%".format(
                 sect, poids_apres, prof["max_secteur"] * 100))
 
-    # v11.9 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
+    # v11.9.1 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
     if nb > 0 and not blocages and base and (cours_eur * nb / base * 100) < 2:
         L.append("⚠️ {:.1f}% du patrimoine : trop petit pour diversifier quoi que ce soit.".format(
             cours_eur * nb / base * 100))
@@ -1749,7 +1762,7 @@ def check_messages_telegram():
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
         msg_date = msg.get("date", 0)
-        # v11.9 : un message envoye AVANT le redemarrage etait ignore en silence.
+        # v11.9.1 : un message envoye AVANT le redemarrage etait ignore en silence.
         # C est ce qui s est passe le 07/08 : "safran" envoye a 14:19, bot
         # redemarre a 14:25 -> aucune reponse, aucune trace cote Telegram.
         # On previent desormais au lieu de disparaitre sans rien dire.
@@ -1767,7 +1780,7 @@ def check_messages_telegram():
         tl = text.lower().strip()
 
         # ============================================================
-        # FILET DE SECURITE GLOBAL v11.9
+        # FILET DE SECURITE GLOBAL v11.9.1
         # Toute exception non prevue dans le traitement d un message est
         # desormais capturee ICI. Avant ce patch, une exception a cet
         # endroit remontait jusqu au 'while True' de __main__ et faisait
@@ -2004,7 +2017,7 @@ def check_messages_telegram():
                     send_telegram("\n".join(lignes))
                 continue
 
-            # v11.9 : profil de risque
+            # v11.9.1 : profil de risque
             if tl.startswith("risque"):
                 parts = tl.split()
                 if len(parts) >= 2:
@@ -2031,7 +2044,7 @@ def check_messages_telegram():
                                       n, prof["max_actions"], prof["cash_floor"]))
                 continue
 
-            # v11.9 : exposition CONSOLIDEE (CTO + PEA + PER)
+            # v11.9.1 : exposition CONSOLIDEE (CTO + PEA + PER)
             if tl in ["expo", "exposition", "diversification", "repartition"]:
                 send_telegram("⏳ Calcul de l exposition consolidee...")
                 total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
@@ -2092,7 +2105,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
                 continue
 
-            # v11.9 : suivi de performance et ajustement automatique
+            # v11.9.1 : suivi de performance et ajustement automatique
             if tl in ["perf", "performance", "risque auto", "ajustement"]:
                 resultats = backtest_decisions()
                 n = len(resultats)
@@ -2132,7 +2145,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
                 continue
 
-            # v11.9 : diagnostic des sources
+            # v11.9.1 : diagnostic des sources
             if tl in ["diag", "diagnostic", "sources", "health"]:
                 send_telegram("⏳ Test des sources en cours...")
                 send_telegram(diagnostic_sources())
@@ -2143,7 +2156,7 @@ def check_messages_telegram():
                 send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
                 continue
 
-            # v11.9 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+            # v11.9.1 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
             if tl.startswith("maj per"):
                 parts = tl.split()
                 if len(parts) >= 3:
@@ -2177,7 +2190,7 @@ def check_messages_telegram():
                     send_telegram("\n".join(lg))
                 continue
 
-            # v11.9 : fiche valeur — "danone", "sanofi", "HO.PA"...
+            # v11.9.1 : fiche valeur — "danone", "sanofi", "HO.PA"...
             # Placee juste avant le dialogue libre : si le texte designe une valeur
             # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
             if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
@@ -2206,7 +2219,7 @@ def check_messages_telegram():
             else:
                 web_actu = recherche_web_active()
             reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-            send_telegram("🤖 <b>Agent v11.9 :</b>\n" + reponse)
+            send_telegram("🤖 <b>Agent v11.9.1 :</b>\n" + reponse)
         except Exception as e:
             print("[HANDLER] Erreur non prevue sur '{}' : {}".format(text[:60], e))
             send_telegram(
@@ -2215,7 +2228,7 @@ def check_messages_telegram():
 
 
 # ============================================================
-# DIAGNOSTIC SOURCES v11.9 — Telegram "diag"
+# DIAGNOSTIC SOURCES v11.9.1 — Telegram "diag"
 # Repond enfin a la question ouverte depuis des semaines : les flux
 # fonctionnent-ils vraiment, ou echouent-ils en silence ?
 # ============================================================
@@ -2343,7 +2356,7 @@ def formatter_capitol_telegram(trades):
 # INDICATEURS TECHNIQUES
 # ============================================================
 # ============================================================
-# CACHE MARCHE v11.9
+# CACHE MARCHE v11.9.1
 # fiche_valeur declenchait ~10 appels reseau (2 directs + 8 via exposition,
 # plus RSS et CapitolTrades). Avec le cache, une fiche coute 1 a 2 appels.
 # TTL court : les cours restent frais, on evite juste les rafales.
@@ -2588,7 +2601,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.9) -------------------------------
+# --- Persistance GitHub de la memoire (v11.9.1) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -2662,7 +2675,7 @@ def load_memoire():
     except: pass
     return {"decisions": [], "stats": {"bonnes": 0, "mauvaises": 0}}
 
-# --- Anti-boucle de redeploiement v11.9 -------------------------------------
+# --- Anti-boucle de redeploiement v11.9.1 -------------------------------------
 # CHAQUE ecriture GitHub cree un COMMIT. Si Railway est en auto-deploy sur le
 # repo, ce commit declenche un redeploiement : le bot redemarre, perd les
 # messages en cours, renvoie son message de demarrage, et recommence au scan
@@ -2772,7 +2785,7 @@ def get_eur_usd():
 EUR_USD_RATE = 1.08
 
 def calcul_pv(ticker, cours, enveloppe="CTO"):
-    """PV latente d une poche. v11.9 : la poche PEA etait ignoree."""
+    """PV latente d une poche. v11.9.1 : la poche PEA etait ignoree."""
     s = SEUILS.get(ticker, {})
     cours_eur = round(cours / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else cours
     if enveloppe.upper() == "PEA":
@@ -2948,7 +2961,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.9
+# ANALYSE COMPLETE v11.9.1
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -3319,7 +3332,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.9 :</b>\n{}\n"
+           "🤖 <b>Agent v11.9.1 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Nom de valeur → reco | 'expo' | 'perf' | 'diag' | 'risque X' | 'cash pea X'</i>").format(
         emoji_msg, titre, now,
@@ -3594,7 +3607,7 @@ Reponds en JSON strict (sans markdown) :
 
 
 def auto_optimisation_avec_patch():
-    """v11.9 : photo de valeur -> ajustement du profil -> optimisation des seuils.
+    """v11.9.1 : photo de valeur -> ajustement du profil -> optimisation des seuils.
     L ordre compte : le profil doit etre reajuste AVANT que les seuils soient
     optimises, sinon on optimise des parametres qu on vient de remplacer."""
     historiser_valeur()
@@ -3636,7 +3649,7 @@ def auto_optimisation_avec_patch():
 
 
 # ============================================================
-# AUTO-DESENSIBILISATION v11.9
+# AUTO-DESENSIBILISATION v11.9.1
 #
 # Le bot mesure ses propres resultats et redescend TOUT SEUL vers un profil
 # plus prudent quand ils se degradent. C est le mecanisme demande : ne plus
@@ -3803,7 +3816,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.9 — fin de la boucle de redeploiement")
+    print(" Agent Trading Matthieu v11.9.1 — fin de la boucle de redeploiement")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -3822,7 +3835,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.9 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.9.1 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
@@ -3856,7 +3869,7 @@ if __name__ == "__main__":
                 print("[SCAN] {} — marches fermes, silence".format(
                     maintenant.strftime("%H:%M")))
 
-        # v11.9 : controle quotidien du repli. L ajustement hebdomadaire est trop
+        # v11.9.1 : controle quotidien du repli. L ajustement hebdomadaire est trop
         # lent si le portefeuille decroche en pleine semaine.
         est_1730 = maintenant.hour == 17 and maintenant.minute >= 30
         pas_verifie_auj = dernier_controle_dd.date() < maintenant.date()
