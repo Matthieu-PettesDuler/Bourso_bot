@@ -183,6 +183,12 @@
       "secteur": "Défense & Aérospatiale",
       "type": "WATCH",
       "ajoute_le": "2026-08-08"
+    },
+    "TSLA": {
+      "nom": "Tesla, Inc.",
+      "secteur": "Automobile / Énergie",
+      "type": "WATCH-US",
+      "ajoute_le": "2026-08-08"
     }
   }
 }
