@@ -176,5 +176,13 @@
       "date": "2026-08-07",
       "valeur": 45815.55
     }
-  ]
+  ],
+  "valeurs_dynamiques": {
+    "HO.PA": {
+      "nom": "Thales S.A.",
+      "secteur": "Défense & Aérospatiale",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-08"
+    }
+  }
 }
