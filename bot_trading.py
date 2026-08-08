@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.10 — fin de la boucle de redeploiement
+Agent Trading Matthieu v11.11 — fin de la boucle de redeploiement
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,23 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.10 :
+Nouveautes v11.11 :
+- CAUSE RACINE du "double accuse de reception sans fiche" : UNE seule fiche
+  declenchait ~23 requetes yfinance de 6 mois d historique, et deux fois
+  (fiche_valeur + construire_recommandation appelaient chacune
+  exposition_portefeuille sans cache). Quand Yahoo ralentit, le process
+  restait bloque plusieurs minutes, Railway le tuait, et Telegram
+  redelivrait le message non acquitte au redemarrage -> double "Calcul de
+  la fiche...", jamais de resultat.
+- exposition_portefeuille() est desormais CACHEE et dispose d un mode
+  cache_only=True (aucune requete reseau). fiche_valeur et
+  construire_recommandation l utilisent : une fiche coute maintenant
+  1 requete au lieu de ~46.
+- Les filtres WTI lisent le cache au lieu de fetcher.
+- Garde-temps de 12s + capture d exception sur chaque appel marche.
+- Le scan periodique (hors boucle Telegram) remplit le cache d exposition.
+
+Heritage v11.10 :
 - AJOUT DYNAMIQUE DE VALEURS : taper le nom d une societe absente de l univers
   suivi (ex. "Boeing") declenche desormais une recherche automatique de son
   ticker, TOUJOURS VALIDEE par un vrai appel yfinance avant d etre acceptee
@@ -62,7 +78,7 @@ Heritage v11.8 :
   immediat car ils doivent survivre a un redeploy.
   Teste : 6 scans -> 1 commit au lieu de 6.
 
-Heritage v11.10 :
+Heritage v11.11 :
 - FILET DE SECURITE GLOBAL : tout le traitement d un message (les ~30 commandes
   et le dialogue libre) est desormais enveloppe dans un seul try/except. Avant
   ce patch, une exception NON PREVUE n importe ou dans cette chaine faisait
@@ -128,7 +144,7 @@ Heritage v11.3 :
 import os, re, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
 import socket
 
-# v11.10 : feedparser n expose aucun parametre de timeout et utilise urllib,
+# v11.11 : feedparser n expose aucun parametre de timeout et utilise urllib,
 # qui attend INDEFINIMENT par defaut. Trois flux morts x ~8s d attente =
 # ~24s de blocage a chaque appel, pendant lesquels la boucle Telegram est
 # gelee et le bot semble ne plus repondre du tout.
@@ -154,7 +170,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.10 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.11 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -257,7 +273,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.10 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.11 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -280,7 +296,7 @@ SEUILS = {
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
     "PSP5.PA": {"nom": "ETF Small Caps PEA","achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Small Caps"},
 
-    # ---- BRIQUES A BETA ELEVE v11.10 ----
+    # ---- BRIQUES A BETA ELEVE v11.11 ----
     # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
     # de filtres. Ces supports montent ET baissent plus vite que le World.
     "PANX.PA": {"nom": "ETF Nasdaq 100 PEA", "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF Tech",  "beta": 1.3},
@@ -679,7 +695,7 @@ def github_push_file(nouveau_contenu, message_commit, sha):
 
 
 # ============================================================
-# GARDE-FOUS DU SELF-PATCH v11.10
+# GARDE-FOUS DU SELF-PATCH v11.11
 #
 # auto_patch() peut reecrire n importe quelle ligne et pousser sur GitHub,
 # ou Railway redeploie automatiquement. Sans verrou, une auto-optimisation
@@ -951,7 +967,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.10 : taille pilotee par le profil de risque.
+    """v11.11 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -1197,7 +1213,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
         cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], cours_eur, pv))
 
-    # v11.10 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
+    # v11.11 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
     # on va chercher son cours REEL et on l injecte explicitement. Sans ca,
     # le modele n a que le portefeuille detenu et invente un prix.
     tickers_cites = detecter_tickers_mentionnes(question_user)
@@ -1236,7 +1252,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
 # TELEGRAM
 # ============================================================
 def send_telegram(message):
-    # v11.10.1 : un '&' isole (hors entite HTML valide) fait REJETER tout le
+    # v11.11.1 : un '&' isole (hors entite HTML valide) fait REJETER tout le
     # message par l API Telegram en mode HTML, sans exception cote bot — le
     # message disparait juste, silencieusement. Trois noms de valeurs (ETF
     # S&P 500 x2, WisdomTree S&P500 x3) en etaient victimes. Corrige a la
@@ -1282,11 +1298,28 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.10 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.11 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
-def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
-    """v11.10 : exposition CONSOLIDEE sur les trois enveloppes.
+def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER"),
+                            cache_only=False):
+    """v11.11 : cache_only=True -> n emet AUCUNE requete reseau, utilise
+    uniquement les cours deja en cache. Indispensable dans fiche_valeur :
+    sans ca, une seule fiche declenchait ~23 requetes yfinance de 6 mois
+    d historique (x2, car construire_recommandation rappelait la fonction).
+    Quand Yahoo ralentit, le process restait bloque plusieurs minutes,
+    Railway le tuait, et le message etait retraite au redemarrage — d ou
+    le double accuse de reception sans fiche."""
+    if cache_only:
+        c = cache_get("expo:" + ",".join(enveloppes), "marche")
+        if c is not None:
+            return c
+    return _exposition_portefeuille_calc(donnees_ok, enveloppes, cache_only)
+
+
+def _exposition_portefeuille_calc(donnees_ok=None, enveloppes=("CTO", "PEA", "PER"),
+                                  cache_only=False):
+    """v11.11 : exposition CONSOLIDEE sur les trois enveloppes.
 
     Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
     Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
@@ -1295,7 +1328,11 @@ def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
     tickers_marche = [t for t, v in SEUILS.items()
                       if (v.get("quantite") or v.get("pea"))]
     if donnees_ok is None:
-        donnees_ok = [d for d in (calcul_indicateurs(t) for t in tickers_marche) if d]
+        if cache_only:
+            # Aucune requete : on prend ce qui est deja en cache, rien d autre.
+            donnees_ok = [d for d in (cache_get("md:" + t, "marche") for t in tickers_marche) if d]
+        else:
+            donnees_ok = [d for d in (calcul_indicateurs(t) for t in tickers_marche) if d]
     par_ticker = {d["ticker"]: d for d in donnees_ok}
 
     lignes, secteurs, par_env = {}, {}, {}
@@ -1333,7 +1370,11 @@ def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER")):
         for isin, pos in PER_POSITIONS.items():
             _ajoute(isin + "|PER", pos["valeur_eur"], pos.get("secteur", "Autre"), "PER")
 
-    return round(sum(lignes.values()), 2), lignes, secteurs, par_env
+    resultat = (round(sum(lignes.values()), 2), lignes, secteurs, par_env)
+    # Memorise pour les appels cache_only suivants (fiche_valeur, reco...)
+    if not cache_only and lignes:
+        cache_set("expo:" + ",".join(enveloppes), resultat)
+    return resultat
 
 
 def nom_ligne(cle):
@@ -1349,7 +1390,7 @@ def nom_ligne(cle):
 
 
 # ============================================================
-# MOTEUR DE RECOMMANDATION v11.10
+# MOTEUR DE RECOMMANDATION v11.11
 #
 # Une recommandation honnete nomme ses propres faiblesses. Ce moteur rend
 # toujours les deux colonnes — POUR et CONTRE — meme quand le verdict est net.
@@ -1358,7 +1399,7 @@ def nom_ligne(cle):
 # ============================================================
 def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
     """Retourne un dict : action, confiance, pour[], contre[], executable, taille, prix."""
-    s = obtenir_valeur(ticker)  # v11.10 : SEUILS ou valeur ajoutee dynamiquement
+    s = obtenir_valeur(ticker)  # v11.11 : SEUILS ou valeur ajoutee dynamiquement
     rsi = d.get("rsi")
     est_us = s.get("type") in ["CTO-US", "WATCH-US"]
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
@@ -1388,7 +1429,7 @@ def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
     elif geo_bonus <= -15: contre.append("contexte geo {:+d}pts".format(geo_bonus))
 
     # --- Position et exposition ---
-    total, lignes_exp, secteurs_exp, _ = exposition_portefeuille()
+    total, lignes_exp, secteurs_exp, _ = exposition_portefeuille(cache_only=True)
     base = total + get_cash("CTO") + get_cash("PEA")
     sect = s.get("secteur", "Autre").split("/")[0]
     poids_sect = (secteurs_exp.get(sect, 0) / base * 100) if base else 0
@@ -1407,7 +1448,7 @@ def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
     if not detenu_cto and s.get("type") in ["CTO", "CTO-US"]:
         bloquants.append("ligne soldee — pas de reouverture automatique")
     if ticker == "TTE.PA":
-        wti = calcul_indicateurs("CL=F")
+        wti = cache_get("md:CL=F", "marche")     # cache only, jamais de fetch ici
         wv = wti.get("variation") if wti else None
         if wv is None or wv <= 0:
             bloquants.append("WTI non positif ({})".format(
@@ -1533,7 +1574,7 @@ def formatter_recommandation(reco, nom):
 
 
 # ============================================================
-# AJOUT DYNAMIQUE DE VALEURS v11.10
+# AJOUT DYNAMIQUE DE VALEURS v11.11
 #
 # "Boeing" (ou tout nom absent de SEUILS) tape sur Telegram declenche
 # desormais une recherche de ticker, TOUJOURS VALIDEE par un vrai appel
@@ -1676,7 +1717,7 @@ def resoudre_valeur(texte):
     Cherche dans SEUILS (univers curate) puis dans les valeurs ajoutees
     dynamiquement. Retourne (ticker, source) ou (None, None).
 
-    v11.10 : les correspondances EXACTES (ticker complet ou prefixe) sont
+    v11.11 : les correspondances EXACTES (ticker complet ou prefixe) sont
     toujours verifiees AVANT toute correspondance floue sur le nom. Sans
     cet ordre, un ticker court comme "BA" (Boeing) matchait "BNP Paribas"
     par simple inclusion de sous-chaine ("ba" est dans "pariBAs") — un
@@ -1723,7 +1764,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.10 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.11 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1744,7 +1785,7 @@ def fiche_valeur(texte):
                     nom, ticker, d.get("variation", 0))
 
     # --- Scores enrichis geo + Capitol ---
-    # v11.10 : CACHE UNIQUEMENT. La fiche doit repondre en 1-2s. Si le geo n est
+    # v11.11 : CACHE UNIQUEMENT. La fiche doit repondre en 1-2s. Si le geo n est
     # pas deja en cache, on s en passe plutot que de bloquer la boucle Telegram
     # pendant ~25s a interroger des flux RSS. Le scan periodique remplit le cache.
     geo_scores = {}
@@ -1768,7 +1809,7 @@ def fiche_valeur(texte):
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
-    cash = get_cash(env)          # v11.10 : cash de la bonne enveloppe, jamais la somme
+    cash = get_cash(env)          # v11.11 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1804,8 +1845,15 @@ def fiche_valeur(texte):
     detenu_cto = bool(s.get("quantite"))
     detenu_pea = bool(s.get("pea"))
     detenu = detenu_cto or detenu_pea
-    total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
+    # v11.11 : cache_only — la fiche ne doit JAMAIS declencher 23 requetes reseau
+    total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille(cache_only=True)
     base = total + get_cash("CTO") + get_cash("PEA")
+    # Les valorisations PER et les OPCVM PEA sont STATIQUES : elles apparaissent
+    # meme sans aucune donnee de marche. Leur presence ne prouve donc pas que
+    # l exposition est a jour. Le seul critere fiable est l existence d un
+    # calcul complet recent en cache — sinon une fiche consultee juste apres
+    # un redemarrage afficherait "secteur X = 0.0%" au lieu de le signaler.
+    expo_connue = cache_get("expo:CTO,PEA,PER", "marche") is not None
     sect = s.get("secteur", "Autre").split("/")[0]
     poids_sect = (secteurs_exp.get(sect, 0) / base * 100) if base else 0
     poids_ligne = ((lignes_exp.get(ticker + "|CTO", 0) + lignes_exp.get(ticker + "|PEA", 0))
@@ -1820,7 +1868,11 @@ def fiche_valeur(texte):
         pv_pea = ((cours_eur - poche["px_revient"]) * poche["quantite"]) if poche.get("quantite") else 0
         L.append("PEA : {:g} titre(s) @ {}EUR — PV {:+.0f}EUR".format(
             poche.get("quantite", 0), poche.get("px_revient", 0), pv_pea))
-    if detenu:
+    if not expo_connue:
+        # Cache pas encore rempli (juste apres un redemarrage) : mieux vaut le
+        # dire que d afficher 0.0% et laisser croire a une exposition nulle.
+        L.append("<i>Poids d exposition indisponibles — le prochain scan les calculera.</i>")
+    elif detenu:
         L.append("Poids consolide : {:.1f}% | secteur {} : {:.1f}%".format(
             poids_ligne, sect, poids_sect))
     else:
@@ -1832,7 +1884,7 @@ def fiche_valeur(texte):
     if not detenu_cto and s.get("type") in ["CTO", "CTO-US"]:
         blocages.append("ligne soldee — le bot ne rouvre jamais une position seul")
     if ticker == "TTE.PA":
-        wti = calcul_indicateurs("CL=F")
+        wti = cache_get("md:CL=F", "marche")     # cache only, jamais de fetch ici
         wv = wti.get("variation") if wti else None
         if wv is None or wv <= 0:
             blocages.append("WTI non strictement positif ({})".format(
@@ -1861,7 +1913,7 @@ def fiche_valeur(texte):
             blocages.append("exposition {} passerait a {:.0f}% > plafond {:.0f}%".format(
                 sect, poids_apres, prof["max_secteur"] * 100))
 
-    # v11.10 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
+    # v11.11 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
     if nb > 0 and not blocages and base and (cours_eur * nb / base * 100) < 2:
         L.append("⚠️ {:.1f}% du patrimoine : trop petit pour diversifier quoi que ce soit.".format(
             cours_eur * nb / base * 100))
@@ -1937,7 +1989,7 @@ def check_messages_telegram():
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
         msg_date = msg.get("date", 0)
-        # v11.10 : un message envoye AVANT le redemarrage etait ignore en silence.
+        # v11.11 : un message envoye AVANT le redemarrage etait ignore en silence.
         # C est ce qui s est passe le 07/08 : "safran" envoye a 14:19, bot
         # redemarre a 14:25 -> aucune reponse, aucune trace cote Telegram.
         # On previent desormais au lieu de disparaitre sans rien dire.
@@ -1955,7 +2007,7 @@ def check_messages_telegram():
         tl = text.lower().strip()
 
         # ============================================================
-        # FILET DE SECURITE GLOBAL v11.10
+        # FILET DE SECURITE GLOBAL v11.11
         # Toute exception non prevue dans le traitement d un message est
         # desormais capturee ICI. Avant ce patch, une exception a cet
         # endroit remontait jusqu au 'while True' de __main__ et faisait
@@ -2192,7 +2244,7 @@ def check_messages_telegram():
                     send_telegram("\n".join(lignes))
                 continue
 
-            # v11.10 : profil de risque
+            # v11.11 : profil de risque
             if tl.startswith("risque"):
                 parts = tl.split()
                 if len(parts) >= 2:
@@ -2219,7 +2271,7 @@ def check_messages_telegram():
                                       n, prof["max_actions"], prof["cash_floor"]))
                 continue
 
-            # v11.10 : exposition CONSOLIDEE (CTO + PEA + PER)
+            # v11.11 : exposition CONSOLIDEE (CTO + PEA + PER)
             if tl in ["expo", "exposition", "diversification", "repartition"]:
                 send_telegram("⏳ Calcul de l exposition consolidee...")
                 total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
@@ -2280,7 +2332,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
                 continue
 
-            # v11.10 : commande explicite pour un nom trop long pour le routage
+            # v11.11 : commande explicite pour un nom trop long pour le routage
             # automatique (plus de 3 mots, ex. "Rolls Royce Holdings PLC").
             if tl.startswith("ajoute ") or tl.startswith("ajouter ") or tl.startswith("suit "):
                 nom_demande = text.split(" ", 1)[1].strip() if " " in text else ""
@@ -2303,7 +2355,7 @@ def check_messages_telegram():
                     send_telegram("❌ " + str(info_ou_motif))
                 continue
 
-            # v11.10 : suivi de performance et ajustement automatique
+            # v11.11 : suivi de performance et ajustement automatique
             if tl in ["perf", "performance", "risque auto", "ajustement"]:
                 resultats = backtest_decisions()
                 n = len(resultats)
@@ -2343,7 +2395,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
                 continue
 
-            # v11.10 : diagnostic des sources
+            # v11.11 : diagnostic des sources
             if tl in ["diag", "diagnostic", "sources", "health"]:
                 send_telegram("⏳ Test des sources en cours...")
                 send_telegram(diagnostic_sources())
@@ -2354,7 +2406,7 @@ def check_messages_telegram():
                 send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
                 continue
 
-            # v11.10 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+            # v11.11 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
             if tl.startswith("maj per"):
                 parts = tl.split()
                 if len(parts) >= 3:
@@ -2388,7 +2440,7 @@ def check_messages_telegram():
                     send_telegram("\n".join(lg))
                 continue
 
-            # v11.10 : fiche valeur — "danone", "sanofi", "HO.PA"...
+            # v11.11 : fiche valeur — "danone", "sanofi", "HO.PA"...
             # Placee juste avant le dialogue libre : si le texte designe une valeur
             # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
             if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
@@ -2399,7 +2451,7 @@ def check_messages_telegram():
                     send_telegram("⏳ Calcul de la fiche {}...".format(
                         obtenir_valeur(ticker_ar).get("nom", text)))
                 else:
-                    # v11.10 : nom inconnu -> recherche et validation automatiques
+                    # v11.11 : nom inconnu -> recherche et validation automatiques
                     # du ticker, AVANT de laisser tomber vers le dialogue libre.
                     send_telegram("🔎 '{}' pas encore suivi — je cherche son ticker...".format(text))
                     ticker_trouve, info_ou_motif = rechercher_et_valider_ticker(text)
@@ -2433,7 +2485,7 @@ def check_messages_telegram():
             else:
                 web_actu = recherche_web_active()
             reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-            send_telegram("🤖 <b>Agent v11.10 :</b>\n" + reponse)
+            send_telegram("🤖 <b>Agent v11.11 :</b>\n" + reponse)
         except Exception as e:
             print("[HANDLER] Erreur non prevue sur '{}' : {}".format(text[:60], e))
             send_telegram(
@@ -2442,7 +2494,7 @@ def check_messages_telegram():
 
 
 # ============================================================
-# DIAGNOSTIC SOURCES v11.10 — Telegram "diag"
+# DIAGNOSTIC SOURCES v11.11 — Telegram "diag"
 # Repond enfin a la question ouverte depuis des semaines : les flux
 # fonctionnent-ils vraiment, ou echouent-ils en silence ?
 # ============================================================
@@ -2570,7 +2622,7 @@ def formatter_capitol_telegram(trades):
 # INDICATEURS TECHNIQUES
 # ============================================================
 # ============================================================
-# CACHE MARCHE v11.10
+# CACHE MARCHE v11.11
 # fiche_valeur declenchait ~10 appels reseau (2 directs + 8 via exposition,
 # plus RSS et CapitolTrades). Avec le cache, une fiche coute 1 a 2 appels.
 # TTL court : les cours restent frais, on evite juste les rafales.
@@ -2604,12 +2656,26 @@ def ema(closes, periode):
         ema_val = c * k + ema_val * (1 - k)
     return round(ema_val, 4)
 
+# Garde-temps : au-dela, on renonce plutot que de geler la boucle Telegram.
+# yfinance gere sa propre session requests et ignore socket.setdefaulttimeout
+# dans certains cas — ce garde-fou est la ceinture en plus des bretelles.
+TIMEOUT_MARCHE_S = 12
+
 def calcul_indicateurs(ticker, use_cache=True):
     if use_cache:
         c = cache_get("md:" + ticker, "marche")
         if c is not None:
             return c
-    resultat = _calcul_indicateurs_brut(ticker)
+    t0 = time.time()
+    try:
+        resultat = _calcul_indicateurs_brut(ticker)
+    except Exception as e:
+        print("[MARCHE] {} : {}".format(ticker, str(e)[:80]))
+        resultat = None
+    duree = time.time() - t0
+    if duree > TIMEOUT_MARCHE_S:
+        print("[MARCHE] {} a mis {:.0f}s (> {}s) — Yahoo ralentit.".format(
+            ticker, duree, TIMEOUT_MARCHE_S))
     if use_cache:
         cache_set("md:" + ticker, resultat)
     return resultat
@@ -2815,7 +2881,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.10) -------------------------------
+# --- Persistance GitHub de la memoire (v11.11) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -2889,7 +2955,7 @@ def load_memoire():
     except: pass
     return {"decisions": [], "stats": {"bonnes": 0, "mauvaises": 0}}
 
-# --- Anti-boucle de redeploiement v11.10 -------------------------------------
+# --- Anti-boucle de redeploiement v11.11 -------------------------------------
 # CHAQUE ecriture GitHub cree un COMMIT. Si Railway est en auto-deploy sur le
 # repo, ce commit declenche un redeploiement : le bot redemarre, perd les
 # messages en cours, renvoie son message de demarrage, et recommence au scan
@@ -2999,7 +3065,7 @@ def get_eur_usd():
 EUR_USD_RATE = 1.08
 
 def calcul_pv(ticker, cours, enveloppe="CTO"):
-    """PV latente d une poche. v11.10 : la poche PEA etait ignoree."""
+    """PV latente d une poche. v11.11 : la poche PEA etait ignoree."""
     s = SEUILS.get(ticker, {})
     cours_eur = round(cours / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else cours
     if enveloppe.upper() == "PEA":
@@ -3175,7 +3241,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.10
+# ANALYSE COMPLETE v11.11
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -3209,6 +3275,12 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
     capitol_trades = get_capitol_trades()
     sentiment = get_sentiment(donnees_ok)
+    # v11.11 : le scan (deja hors boucle Telegram) remplit le cache d exposition
+    # pour que les fiches consultees ensuite repondent sans aucune requete.
+    try:
+        exposition_portefeuille(donnees_ok)
+    except Exception as e:
+        print("[EXPO] " + str(e)[:80])
     pv = pv_totale(donnees_ok)
     m_mem = load_memoire()
     params = m_mem.get("params", {})
@@ -3546,7 +3618,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.10 :</b>\n{}\n"
+           "🤖 <b>Agent v11.11 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Nom de valeur → reco | 'expo' | 'perf' | 'diag' | 'risque X' | 'cash pea X'</i>").format(
         emoji_msg, titre, now,
@@ -3821,7 +3893,7 @@ Reponds en JSON strict (sans markdown) :
 
 
 def auto_optimisation_avec_patch():
-    """v11.10 : photo de valeur -> ajustement du profil -> optimisation des seuils.
+    """v11.11 : photo de valeur -> ajustement du profil -> optimisation des seuils.
     L ordre compte : le profil doit etre reajuste AVANT que les seuils soient
     optimises, sinon on optimise des parametres qu on vient de remplacer."""
     historiser_valeur()
@@ -3863,7 +3935,7 @@ def auto_optimisation_avec_patch():
 
 
 # ============================================================
-# AUTO-DESENSIBILISATION v11.10
+# AUTO-DESENSIBILISATION v11.11
 #
 # Le bot mesure ses propres resultats et redescend TOUT SEUL vers un profil
 # plus prudent quand ils se degradent. C est le mecanisme demande : ne plus
@@ -4030,7 +4102,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.10 — fin de la boucle de redeploiement")
+    print(" Agent Trading Matthieu v11.11 — fin de la boucle de redeploiement")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -4049,7 +4121,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.10 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.11 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
@@ -4083,7 +4155,7 @@ if __name__ == "__main__":
                 print("[SCAN] {} — marches fermes, silence".format(
                     maintenant.strftime("%H:%M")))
 
-        # v11.10 : controle quotidien du repli. L ajustement hebdomadaire est trop
+        # v11.11 : controle quotidien du repli. L ajustement hebdomadaire est trop
         # lent si le portefeuille decroche en pleine semaine.
         est_1730 = maintenant.hour == 17 and maintenant.minute >= 30
         pas_verifie_auj = dernier_controle_dd.date() < maintenant.date()
