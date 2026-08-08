@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Trading Matthieu v11.13 — fin de la boucle de redeploiement
+Agent Trading Matthieu v11.15 — fin de la boucle de redeploiement
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
 - Surveillance SPCX en 2 phases post-IPO : alerte prise de profit (>+40%) / alerte renforcement (repli + RSI<45)
@@ -13,7 +13,35 @@ Nouveautes vs v10.8 :
 - Modele Claude mis a jour : claude-sonnet-4-6
 - Garde-fous conserves : validation syntaxe avant push, jamais d ordre automatique (le bot ALERTE, Matthieu DECIDE)
 
-Nouveautes v11.13 :
+Nouveautes v11.15 :
+- CORRECTION IMPORTANTE : "EN.PA" etait etiquete "Edenred" alors que c est le
+  code de BOUYGUES sur Euronext Paris. Le bot suivait donc Bouygues en
+  affichant "Edenred" depuis le debut — tout signal sur cette ligne portait
+  sur la mauvaise societe. Les deux figurent desormais sous leur vrai code
+  (EN.PA = Bouygues, EDEN.PA = Edenred).
+- Ajout des indices europeens : completions CAC 40 (13), DAX (11),
+  EuroStoxx 50 hors France/Allemagne (10). Cotees en EUR et majoritairement
+  ELIGIBLES PEA — contrairement aux americaines, ce sont les seules
+  achetables avec le cash PEA disponible.
+- Ajout de BlackRock (BLK, US).
+- Decouverte de nouvelles valeurs revue : univers elargi (l ancien prompt se
+  limitait a 6 secteurs deja sur-representes : IA, defense, spatial...).
+  Il PRIORISE desormais les secteurs absents du portefeuille et demande un
+  CONTRE-ARGUMENT par idee. Disponible a la demande ("opportunites") et
+  passe de 1 a 2 executions par semaine (lundi + jeudi).
+- Les pistes trouvees sont ajoutees a l univers dynamique : leur nom devient
+  immediatement tapable pour obtenir la fiche chiffree.
+
+Heritage v11.14 :
+- Ajout du top 15 Nasdaq-100 et du top 15 S&P 500 (18 tickers apres
+  dedoublonnage ; NVDA, MSFT, GOOGL, PLTR etaient deja suivis).
+  Toutes en USD -> WATCH-US, enveloppe CTO, NON eligibles PEA.
+- Ces valeurs sont EXCLUES des signaux automatiques par defaut : aucun seuil
+  de strategie n a ete defini dessus, et elles recoupent deja largement le
+  World (PEA) et le PER, tous deux ~70% US. Commande "indices on" pour les
+  inclure, "indices" pour la liste.
+
+Heritage v11.13 :
 - CAUSE RACINE des fiches qui n arrivaient jamais : 44 fiches sur 52
   contenaient un '<' brut (message de blocage "cash engageable 0EUR <
   100EUR"). Telegram en mode HTML REJETTE alors tout le message, en
@@ -104,7 +132,7 @@ Heritage v11.8 :
   immediat car ils doivent survivre a un redeploy.
   Teste : 6 scans -> 1 commit au lieu de 6.
 
-Heritage v11.13 :
+Heritage v11.15 :
 - FILET DE SECURITE GLOBAL : tout le traitement d un message (les ~30 commandes
   et le dialogue libre) est desormais enveloppe dans un seul try/except. Avant
   ce patch, une exception NON PREVUE n importe ou dans cette chaine faisait
@@ -170,7 +198,7 @@ Heritage v11.3 :
 import os, re, unicodedata, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
 import socket
 
-# v11.13 : feedparser n expose aucun parametre de timeout et utilise urllib,
+# v11.15 : feedparser n expose aucun parametre de timeout et utilise urllib,
 # qui attend INDEFINIMENT par defaut. Trois flux morts x ~8s d attente =
 # ~24s de blocage a chaque appel, pendant lesquels la boucle Telegram est
 # gelee et le bot semble ne plus repondre du tout.
@@ -196,7 +224,7 @@ CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifi
 CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ============================================================
-# PROFIL DE RISQUE v11.13 — Telegram : "risque offensif"
+# PROFIL DE RISQUE v11.15 — Telegram : "risque offensif"
 #
 # Ce reglage agit sur la TAILLE des positions, le plancher de cash et le seuil
 # de declenchement — PAS sur les filtres anti-contradiction.
@@ -283,7 +311,13 @@ SEUILS = {
     "SPCX":    {"nom": "SpaceX",            "achat": 112.00,"vente": 200.00,"type": "CTO-US",  "secteur": "Spatial/IA",   "quantite": 1,  "px_revient": 117.03, "ipo": True, "ipo_date": "2026-06-12"},
     # Surveillance
     "DSY.PA":  {"nom": "Dassault Systemes", "achat": 15.00, "vente": 38.00, "type": "WATCH",   "secteur": "Tech/IA"},
-    "EN.PA":   {"nom": "Edenred",           "achat": 40.00, "vente": 60.00, "type": "WATCH",   "secteur": "Fintech"},
+    # CORRECTION v11.15 : "EN.PA" etait etiquete "Edenred" — c est en realite
+    # le code de BOUYGUES sur Euronext Paris (verifie 08/08/2026). Edenred
+    # cote sous EDEN.PA. Le bot suivait donc Bouygues en affichant "Edenred"
+    # depuis le debut : tout signal sur cette ligne portait sur la mauvaise
+    # societe. Les deux sont desormais presentes, sous leur vrai code.
+    "EN.PA":   {"nom": "Bouygues",          "achat": 30.00, "vente": 48.00, "type": "WATCH",   "secteur": "Construction/Telecom"},
+    "EDEN.PA": {"nom": "Edenred",           "achat": 16.00, "vente": 30.00, "type": "WATCH",   "secteur": "Fintech"},
     "ADP.PA":  {"nom": "ADP Aeroports",     "achat": 90.00, "vente": 140.00,"type": "WATCH",   "secteur": "Infrastructure"},
     "MC.PA":   {"nom": "LVMH",              "achat": 450.00,"vente": 750.00,"type": "WATCH",   "secteur": "Luxe"},
     "RMS.PA":  {"nom": "Hermes",            "achat": 2000.00,"vente":3500.00,"type": "WATCH",  "secteur": "Luxe"},
@@ -299,7 +333,7 @@ SEUILS = {
     "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
-    # ---- DIVERSIFICATION v11.13 : secteurs totalement absents du portefeuille ----
+    # ---- DIVERSIFICATION v11.15 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
@@ -322,7 +356,89 @@ SEUILS = {
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
     "PSP5.PA": {"nom": "ETF Small Caps PEA","achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Small Caps"},
 
-    # ---- BRIQUES A BETA ELEVE v11.13 ----
+    # ============================================================
+    # TOP 15 NASDAQ-100 ET S&amp;P 500 (poids approx. mi-2026, verifies le 08/08)
+    #
+    # Toutes cotees en USD -> type WATCH-US, enveloppe CTO, NON eligibles PEA.
+    # achat/vente = None : ce sont des seuils de strategie que Matthieu n a pas
+    # definis pour ces valeurs. Marquees "indice" -> consultables via leur
+    # fiche, mais EXCLUES des signaux automatiques par defaut (commande
+    # "indices on" pour les inclure). Sans ca, 18 noms de plus inonderaient
+    # le message du matin avec des signaux non executables.
+    #
+    # Attention au recoupement : le World (PEA) et le PER sont deja ~70% US.
+    # Ces lignes recoupent donc largement ce qui est deja detenu en indiciel.
+    # ============================================================
+    # -- Coeur commun Nasdaq-100 + S&amp;P 500 (NVDA, MSFT, GOOGL deja presents) --
+    "AAPL":    {"nom": "Apple",             "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Tech/Hardware",     "indice": "NDX+SPX"},
+    "AMZN":    {"nom": "Amazon",            "achat": None, "vente": None, "type": "WATCH-US", "secteur": "E-commerce/Cloud",  "indice": "NDX+SPX"},
+    "META":    {"nom": "Meta Platforms",    "achat": None, "vente": None, "type": "WATCH-US", "secteur": "IA/Publicite",      "indice": "NDX+SPX"},
+    "AVGO":    {"nom": "Broadcom",          "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Semi-conducteurs",  "indice": "NDX+SPX"},
+    "TSLA":    {"nom": "Tesla",             "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Auto/Energie",      "indice": "NDX+SPX"},
+    # -- Specifiques Nasdaq-100 --
+    "COST":    {"nom": "Costco",            "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Distribution",      "indice": "NDX"},
+    "NFLX":    {"nom": "Netflix",           "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Streaming",         "indice": "NDX"},
+    "AMD":     {"nom": "AMD",               "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Semi-conducteurs",  "indice": "NDX"},
+    "MU":      {"nom": "Micron",            "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Semi-conducteurs",  "indice": "NDX"},
+    "INTC":    {"nom": "Intel",             "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Semi-conducteurs",  "indice": "NDX"},
+    "ADBE":    {"nom": "Adobe",             "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Logiciels",         "indice": "NDX"},
+    # -- Specifiques S&amp;P 500 (hors Nasdaq-100 : financieres et NYSE) --
+    "BRK-B":   {"nom": "Berkshire Hathaway","achat": None, "vente": None, "type": "WATCH-US", "secteur": "Conglomerat",       "indice": "SPX"},
+    "WMT":     {"nom": "Walmart",           "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Distribution",      "indice": "SPX"},
+    "LLY":     {"nom": "Eli Lilly",         "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Sante",             "indice": "SPX"},
+    "JPM":     {"nom": "JPMorgan Chase",    "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Banque",            "indice": "SPX"},
+    "V":       {"nom": "Visa",              "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Paiements",         "indice": "SPX"},
+    "MA":      {"nom": "Mastercard",        "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Paiements",         "indice": "SPX"},
+    "UNH":     {"nom": "UnitedHealth",      "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Sante",             "indice": "SPX"},
+
+    # ============================================================
+    # INDICES EUROPEENS v11.15 — CAC 40 / DAX / EuroStoxx 50
+    # Cotees en EUR, majoritairement ELIGIBLES PEA (contrairement aux
+    # americaines) : ce sont les seules du lot achetables avec ton cash PEA.
+    # Marquees "indice" -> hors signaux automatiques par defaut.
+    # ============================================================
+    # -- CAC 40, completions (les autres sont deja suivies plus haut) --
+    "STLAP.PA":{"nom": "Stellantis",        "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile",        "indice": "CAC40"},
+    "LR.PA":   {"nom": "Legrand",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Equipement elec",   "indice": "CAC40"},
+    "SGO.PA":  {"nom": "Saint-Gobain",      "achat": None, "vente": None, "type": "WATCH", "secteur": "Materiaux",         "indice": "CAC40"},
+    "ML.PA":   {"nom": "Michelin",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Pneumatiques",      "indice": "CAC40"},
+    "PUB.PA":  {"nom": "Publicis",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Publicite",         "indice": "CAC40"},
+    "ENGI.PA": {"nom": "Engie",             "achat": None, "vente": None, "type": "WATCH", "secteur": "Energie/Utilities", "indice": "CAC40"},
+    "CA.PA":   {"nom": "Carrefour",         "achat": None, "vente": None, "type": "WATCH", "secteur": "Distribution",      "indice": "CAC40"},
+    "ALO.PA":  {"nom": "Alstom",            "achat": None, "vente": None, "type": "WATCH", "secteur": "Ferroviaire",       "indice": "CAC40"},
+    "AC.PA":   {"nom": "Accor",             "achat": None, "vente": None, "type": "WATCH", "secteur": "Hotellerie",        "indice": "CAC40"},
+    "RNO.PA":  {"nom": "Renault",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile",        "indice": "CAC40"},
+    "BVI.PA":  {"nom": "Bureau Veritas",    "achat": None, "vente": None, "type": "WATCH", "secteur": "Certification",     "indice": "CAC40"},
+    "ERF.PA":  {"nom": "Eurofins",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Laboratoires",      "indice": "CAC40"},
+    "MT.AS":   {"nom": "ArcelorMittal",     "achat": None, "vente": None, "type": "WATCH", "secteur": "Acier",             "indice": "CAC40"},
+    # -- DAX 40, principales --
+    "SAP.DE":  {"nom": "SAP",               "achat": None, "vente": None, "type": "WATCH", "secteur": "Logiciels",         "indice": "DAX"},
+    "SIE.DE":  {"nom": "Siemens",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Industrie",         "indice": "DAX"},
+    "ALV.DE":  {"nom": "Allianz",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Assurance",         "indice": "DAX"},
+    "DTE.DE":  {"nom": "Deutsche Telekom",  "achat": None, "vente": None, "type": "WATCH", "secteur": "Telecom",           "indice": "DAX"},
+    "MUV2.DE": {"nom": "Munich Re",         "achat": None, "vente": None, "type": "WATCH", "secteur": "Reassurance",       "indice": "DAX"},
+    "RHM.DE":  {"nom": "Rheinmetall",       "achat": None, "vente": None, "type": "WATCH", "secteur": "Defense",           "indice": "DAX"},
+    "MBG.DE":  {"nom": "Mercedes-Benz",     "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile",        "indice": "DAX"},
+    "BMW.DE":  {"nom": "BMW",               "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile",        "indice": "DAX"},
+    "IFX.DE":  {"nom": "Infineon",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Semi-conducteurs",  "indice": "DAX"},
+    "BAS.DE":  {"nom": "BASF",              "achat": None, "vente": None, "type": "WATCH", "secteur": "Chimie",            "indice": "DAX"},
+    "DBK.DE":  {"nom": "Deutsche Bank",     "achat": None, "vente": None, "type": "WATCH", "secteur": "Banque",            "indice": "DAX"},
+    "ADS.DE":  {"nom": "Adidas",            "achat": None, "vente": None, "type": "WATCH", "secteur": "Equipement sportif","indice": "DAX"},
+    # -- EuroStoxx 50, hors France/Allemagne --
+    "ASML.AS": {"nom": "ASML",              "achat": None, "vente": None, "type": "WATCH", "secteur": "Semi-conducteurs",  "indice": "SX5E"},
+    "ITX.MC":  {"nom": "Inditex",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Textile",           "indice": "SX5E"},
+    "IBE.MC":  {"nom": "Iberdrola",         "achat": None, "vente": None, "type": "WATCH", "secteur": "Utilities",         "indice": "SX5E"},
+    "SAN.MC":  {"nom": "Banco Santander",   "achat": None, "vente": None, "type": "WATCH", "secteur": "Banque",            "indice": "SX5E"},
+    "ISP.MI":  {"nom": "Intesa Sanpaolo",   "achat": None, "vente": None, "type": "WATCH", "secteur": "Banque",            "indice": "SX5E"},
+    "UCG.MI":  {"nom": "UniCredit",         "achat": None, "vente": None, "type": "WATCH", "secteur": "Banque",            "indice": "SX5E"},
+    "ENEL.MI": {"nom": "Enel",              "achat": None, "vente": None, "type": "WATCH", "secteur": "Utilities",         "indice": "SX5E"},
+    "RACE.MI": {"nom": "Ferrari",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile luxe",   "indice": "SX5E"},
+    "PRX.AS":  {"nom": "Prosus",            "achat": None, "vente": None, "type": "WATCH", "secteur": "Tech/Holding",      "indice": "SX5E"},
+    "ABI.BR":  {"nom": "AB InBev",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Boissons",          "indice": "SX5E"},
+    # -- Gestion d actifs US (demande explicite) --
+    "BLK":     {"nom": "BlackRock",         "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Gestion d actifs","indice": "SPX"},
+
+    # ---- BRIQUES A BETA ELEVE v11.15 ----
     # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
     # de filtres. Ces supports montent ET baissent plus vite que le World.
     "PANX.PA": {"nom": "ETF Nasdaq 100 PEA", "achat": None, "vente": None, "type": "PEA",      "secteur": "ETF Tech",  "beta": 1.3},
@@ -721,7 +837,7 @@ def github_push_file(nouveau_contenu, message_commit, sha):
 
 
 # ============================================================
-# GARDE-FOUS DU SELF-PATCH v11.13
+# GARDE-FOUS DU SELF-PATCH v11.15
 #
 # auto_patch() peut reecrire n importe quelle ligne et pousser sur GitHub,
 # ou Railway redeploie automatiquement. Sans verrou, une auto-optimisation
@@ -993,7 +1109,7 @@ def check_stop_loss_crypto(donnees_ok):
 
 
 def calcul_position_size(score, cours, cash_dispo):
-    """v11.13 : taille pilotee par le profil de risque.
+    """v11.15 : taille pilotee par le profil de risque.
     Le cash engageable = cash total - plancher du profil (jamais tout investir)."""
     _, prof = get_risk_profile()
     engageable = max(0.0, cash_dispo - prof["cash_floor"])
@@ -1040,12 +1156,26 @@ def decouverte_societes_emergentes():
     try:
         import re
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        prompt = ("Recherche les 3 societes cotees les plus prometteuses cette semaine "
-                  "dans : IA, defense, energie verte, semi-conducteurs, spatial, hydrogene. "
-                  "Preference europeenne. Exclure les societes deja en portefeuille : "
-                  "Orange Capgemini TotalEnergies BNP Airbus Safran Thales Dassault Schneider Microsoft SpaceX. "
-                  "Pour chaque societe, verifie que le ticker existe reellement. Reponds UNIQUEMENT en JSON : "
-                  '[{{"nom":"X","ticker":"X.PA","secteur":"X","raison":"X","risque":"ELEVE"}}]')
+        # v11.15 : univers de recherche elargi (l ancien se limitait a 6 secteurs,
+        # tous deja sur-representes dans le portefeuille : IA, defense, spatial...).
+        # On demande explicitement des secteurs SOUS-representes et un contre-argument
+        # par idee — une opportunite sans risque identifie n est pas une analyse.
+        deja_suivi = ", ".join(sorted(set(v["nom"] for v in SEUILS.values()))[:60])
+        prompt = ("Recherche 3 societes cotees prometteuses a horizon 6-18 mois. "
+                  "Criteres : catalyseur identifiable (resultats, contrat, retournement, "
+                  "reglementation), liquidite suffisante, capitalisation > 1 Md EUR. "
+                  "PRIORISE les secteurs suivants, sous-representes dans ce portefeuille : "
+                  "sante/biotech, consommation de base, finance/assurance, infrastructure, "
+                  "logiciels B2B, materiaux. EVITE : defense, aeronautique, energie fossile, "
+                  "spatial (deja fortement pondere). "
+                  "Preference pour les valeurs europeennes ELIGIBLES PEA (le cash disponible "
+                  "est sur le PEA ; les valeurs US ne sont pas achetables actuellement). "
+                  "Exclure celles deja suivies : " + deja_suivi + ". "
+                  "Pour chaque societe : verifie que le ticker existe reellement (format "
+                  "Yahoo Finance), donne UN catalyseur precis et UN risque principal. "
+                  "Reponds UNIQUEMENT en JSON : "
+                  '[{{"nom":"X","ticker":"X.PA","secteur":"X","raison":"catalyseur precis",'
+                  '"risque_principal":"le principal argument contre","risque":"ELEVE"}}]')
         msg = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=400,
@@ -1071,18 +1201,43 @@ def decouverte_societes_emergentes():
                 continue
             entry = {"date": date_str, "ticker": s["ticker"], "nom": s.get("nom",""),
                      "secteur": s.get("secteur",""), "raison": s.get("raison",""),
+                     "risque_principal": s.get("risque_principal",""),
                      "risque": s.get("risque","ELEVE")}
+            # Ajoutee au dynamique pour que son nom soit tapable immediatement.
+            # IMPORTANT : on ecrit dans le MEME objet memoire "m" que celui
+            # sauvegarde en fin de fonction. Charger une seconde copie ici et
+            # la sauver separement provoquait une perte d ecriture : le
+            # save_memoire(m) final ecrasait l ajout, et la piste trouvee
+            # restait introuvable quand on tapait son nom.
+            try:
+                dyn_d = m.setdefault("valeurs_dynamiques", {})
+                if s["ticker"] not in SEUILS and s["ticker"] not in dyn_d:
+                    dyn_d[s["ticker"]] = {
+                        "nom": s.get("nom", s["ticker"])[:60],
+                        "secteur": s.get("secteur", "Non classe")[:40],
+                        "type": "WATCH-US" if "." not in s["ticker"] else "WATCH",
+                        "ajoute_le": date.today().strftime("%Y-%m-%d")}
+            except Exception as e:
+                print("[DECOUVERTE] ajout dynamique : " + str(e)[:60])
             nouvelles.append(entry)
             decouvertes.append(entry)
         m["societes_decouvertes"] = decouvertes[-20:]
         save_memoire(m)
         if nouvelles:
-            lignes = ["🔭 <b>Societes emergentes du lundi :</b>"]
+            lignes = ["🔭 <b>Nouvelles pistes</b>", "━" * 24]
             for n in nouvelles:
                 e = "🔴" if n["risque"]=="ELEVE" else "🟡" if n["risque"]=="MODERE" else "🟢"
-                lignes.append("{} <b>{}</b> ({}) - {} | {}".format(
-                    e, n["nom"], n["ticker"], n["secteur"], n["raison"]))
-            lignes.append("<i>Observation uniquement — aucun achat sans validation de Matthieu</i>")
+                lignes.append("")
+                lignes.append("{} <b>{}</b> ({}) — {}".format(
+                    e, n["nom"], n["ticker"], n["secteur"]))
+                lignes.append("✅ {}".format(n.get("raison", "?")))
+                if n.get("risque_principal"):
+                    lignes.append("❌ {}".format(n["risque_principal"]))
+            lignes.append("")
+            lignes.append("<i>Pistes a examiner, pas des recommandations : aucun seuil de "
+                          "strategie n est defini dessus et elles n entrent pas dans les "
+                          "signaux automatiques. Tape le nom de l une d elles pour sa fiche "
+                          "chiffree.</i>")
             send_telegram("\n".join(lignes))
     except Exception as e:
         print("[DECOUVERTE] " + str(e))
@@ -1239,7 +1394,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
         cours_eur = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
         ctx.append("{} {}EUR PV:{:+.0f}EUR".format(s["nom"], cours_eur, pv))
 
-    # v11.13 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
+    # v11.15 : si la question nomme une valeur de watchlist (Sanofi, Pernod...),
     # on va chercher son cours REEL et on l injecte explicitement. Sans ca,
     # le modele n a que le portefeuille detenu et invente un prix.
     tickers_cites = detecter_tickers_mentionnes(question_user)
@@ -1278,13 +1433,13 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
 # TELEGRAM
 # ============================================================
 def send_telegram(message):
-    # v11.13 : un '&' isole (hors entite HTML valide) fait REJETER tout le
+    # v11.15 : un '&' isole (hors entite HTML valide) fait REJETER tout le
     # message par l API Telegram en mode HTML, sans exception cote bot — le
     # message disparait juste, silencieusement. Trois noms de valeurs (ETF
     # S&P 500 x2, WisdomTree S&P500 x3) en etaient victimes. Corrige a la
     # source dans SEUILS, et verrouille ici pour toute occurrence future.
     message = re.sub(r'&(?!amp;|lt;|gt;|quot;|#\d+;)', '&amp;', message)
-    # v11.13 : Telegram rejette AUSSI tout le message si un '<' n ouvre pas
+    # v11.15 : Telegram rejette AUSSI tout le message si un '<' n ouvre pas
     # une balise autorisee — en silence, sans erreur cote bot. C etait la
     # cause de 44 fiches sur 52 qui n arrivaient jamais : le message de
     # blocage contient "cash engageable 0EUR < 100EUR", et ce seul '<'
@@ -1332,12 +1487,12 @@ def verdict_score(sa, sv):
     return "🔴 EVITER"
 
 # ============================================================
-# EXPOSITION PORTEFEUILLE v11.13 — le vrai outil de diversification
+# EXPOSITION PORTEFEUILLE v11.15 — le vrai outil de diversification
 # Le bot ne savait pas qu il proposait de renforcer un secteur deja sature.
 # ============================================================
 def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER"),
                             cache_only=False):
-    """v11.13 : cache_only=True -> n emet AUCUNE requete reseau, utilise
+    """v11.15 : cache_only=True -> n emet AUCUNE requete reseau, utilise
     uniquement les cours deja en cache. Indispensable dans fiche_valeur :
     sans ca, une seule fiche declenchait ~23 requetes yfinance de 6 mois
     d historique (x2, car construire_recommandation rappelait la fonction).
@@ -1353,7 +1508,7 @@ def exposition_portefeuille(donnees_ok=None, enveloppes=("CTO", "PEA", "PER"),
 
 def _exposition_portefeuille_calc(donnees_ok=None, enveloppes=("CTO", "PEA", "PER"),
                                   cache_only=False):
-    """v11.13 : exposition CONSOLIDEE sur les trois enveloppes.
+    """v11.15 : exposition CONSOLIDEE sur les trois enveloppes.
 
     Retourne (total_titres, {cle: montant}, {secteur: montant}, {enveloppe: montant}).
     Sans le PEA et le PER, le bot mesurait la concentration sur le seul CTO et
@@ -1424,7 +1579,7 @@ def nom_ligne(cle):
 
 
 # ============================================================
-# MOTEUR DE RECOMMANDATION v11.13
+# MOTEUR DE RECOMMANDATION v11.15
 #
 # Une recommandation honnete nomme ses propres faiblesses. Ce moteur rend
 # toujours les deux colonnes — POUR et CONTRE — meme quand le verdict est net.
@@ -1433,7 +1588,7 @@ def nom_ligne(cle):
 # ============================================================
 def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
     """Retourne un dict : action, confiance, pour[], contre[], executable, taille, prix."""
-    s = obtenir_valeur(ticker)  # v11.13 : SEUILS ou valeur ajoutee dynamiquement
+    s = obtenir_valeur(ticker)  # v11.15 : SEUILS ou valeur ajoutee dynamiquement
     rsi = d.get("rsi")
     est_us = s.get("type") in ["CTO-US", "WATCH-US"]
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
@@ -1608,7 +1763,7 @@ def formatter_recommandation(reco, nom):
 
 
 # ============================================================
-# AJOUT DYNAMIQUE DE VALEURS v11.13
+# AJOUT DYNAMIQUE DE VALEURS v11.15
 #
 # "Boeing" (ou tout nom absent de SEUILS) tape sur Telegram declenche
 # desormais une recherche de ticker, TOUJOURS VALIDEE par un vrai appel
@@ -1702,7 +1857,7 @@ def rechercher_et_valider_ticker(nom_demande):
         _enregistrer_echec(nom_norm)
         return None, "Ticker '{}' propose mais invalide a la verification.".format(ticker)
 
-    # v11.13 : si le ticker trouve existe deja dans l univers curate, on le
+    # v11.15 : si le ticker trouve existe deja dans l univers curate, on le
     # renvoie tel quel SANS l ajouter au dynamique. Sans ce garde-fou, taper
     # "Thalès" (accentue, non resolu) faisait reajouter HO.PA en doublon.
     if ticker in SEUILS:
@@ -1768,14 +1923,14 @@ def resoudre_valeur(texte):
     Cherche dans SEUILS (univers curate) puis dans les valeurs ajoutees
     dynamiquement. Retourne (ticker, source) ou (None, None).
 
-    v11.13 : les correspondances EXACTES (ticker complet ou prefixe) sont
+    v11.15 : les correspondances EXACTES (ticker complet ou prefixe) sont
     toujours verifiees AVANT toute correspondance floue sur le nom. Sans
     cet ordre, un ticker court comme "BA" (Boeing) matchait "BNP Paribas"
     par simple inclusion de sous-chaine ("ba" est dans "pariBAs") — un
     risque croissant avec les tickers US courts ajoutes dynamiquement.
     """
     t = texte.strip().upper()
-    tl = _normaliser(texte)          # v11.13 : insensible aux accents
+    tl = _normaliser(texte)          # v11.15 : insensible aux accents
     dyn = charger_valeurs_dynamiques()
 
     # 1. Correspondances EXACTES d abord (ticker complet ou prefixe)
@@ -1815,7 +1970,7 @@ def resoudre_valeur(texte):
 
 
 def fiche_valeur(texte):
-    """v11.13 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
+    """v11.15 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas."""
     ticker, source = resoudre_valeur(texte)
     if not ticker:
@@ -1836,7 +1991,7 @@ def fiche_valeur(texte):
                     nom, ticker, d.get("variation", 0))
 
     # --- Scores enrichis geo + Capitol ---
-    # v11.13 : CACHE UNIQUEMENT. La fiche doit repondre en 1-2s. Si le geo n est
+    # v11.15 : CACHE UNIQUEMENT. La fiche doit repondre en 1-2s. Si le geo n est
     # pas deja en cache, on s en passe plutot que de bloquer la boucle Telegram
     # pendant ~25s a interroger des flux RSS. Le scan periodique remplit le cache.
     geo_scores = {}
@@ -1860,7 +2015,7 @@ def fiche_valeur(texte):
     cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
-    cash = get_cash(env)          # v11.13 : cash de la bonne enveloppe, jamais la somme
+    cash = get_cash(env)          # v11.15 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
@@ -1896,7 +2051,7 @@ def fiche_valeur(texte):
     detenu_cto = bool(s.get("quantite"))
     detenu_pea = bool(s.get("pea"))
     detenu = detenu_cto or detenu_pea
-    # v11.13 : cache_only — la fiche ne doit JAMAIS declencher 23 requetes reseau
+    # v11.15 : cache_only — la fiche ne doit JAMAIS declencher 23 requetes reseau
     total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille(cache_only=True)
     base = total + get_cash("CTO") + get_cash("PEA")
     # Les valorisations PER et les OPCVM PEA sont STATIQUES : elles apparaissent
@@ -1964,7 +2119,7 @@ def fiche_valeur(texte):
             blocages.append("exposition {} passerait a {:.0f}% > plafond {:.0f}%".format(
                 sect, poids_apres, prof["max_secteur"] * 100))
 
-    # v11.13 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
+    # v11.15 : le detail des blocages passe dans le bloc RECOMMANDATION ci-dessous
     if nb > 0 and not blocages and base and (cours_eur * nb / base * 100) < 2:
         L.append("⚠️ {:.1f}% du patrimoine : trop petit pour diversifier quoi que ce soit.".format(
             cours_eur * nb / base * 100))
@@ -2040,7 +2195,7 @@ def check_messages_telegram():
         text = msg.get("text", "").strip()
         chat_id = str(msg.get("chat", {}).get("id", ""))
         msg_date = msg.get("date", 0)
-        # v11.13 : un message envoye AVANT le redemarrage etait ignore en silence.
+        # v11.15 : un message envoye AVANT le redemarrage etait ignore en silence.
         # C est ce qui s est passe le 07/08 : "safran" envoye a 14:19, bot
         # redemarre a 14:25 -> aucune reponse, aucune trace cote Telegram.
         # On previent desormais au lieu de disparaitre sans rien dire.
@@ -2058,7 +2213,7 @@ def check_messages_telegram():
         tl = text.lower().strip()
 
         # ============================================================
-        # FILET DE SECURITE GLOBAL v11.13
+        # FILET DE SECURITE GLOBAL v11.15
         # Toute exception non prevue dans le traitement d un message est
         # desormais capturee ICI. Avant ce patch, une exception a cet
         # endroit remontait jusqu au 'while True' de __main__ et faisait
@@ -2222,7 +2377,9 @@ def check_messages_telegram():
                 send_telegram(formatter_capitol_telegram(trades))
                 continue
 
-            if "emergent" in tl or "decouverte" in tl or "nouvelles societes" in tl:
+            if ("emergent" in tl or "decouverte" in tl or "nouvelles societes" in tl
+                    or tl in ["opportunites", "opportunite", "idees", "pistes", "scan marche"]):
+                send_telegram("🔎 Recherche de nouvelles pistes en cours (30-60s)...")
                 decouverte_societes_emergentes()
                 continue
 
@@ -2295,7 +2452,7 @@ def check_messages_telegram():
                     send_telegram("\n".join(lignes))
                 continue
 
-            # v11.13 : profil de risque
+            # v11.15 : profil de risque
             if tl.startswith("risque"):
                 parts = tl.split()
                 if len(parts) >= 2:
@@ -2322,7 +2479,7 @@ def check_messages_telegram():
                                       n, prof["max_actions"], prof["cash_floor"]))
                 continue
 
-            # v11.13 : exposition CONSOLIDEE (CTO + PEA + PER)
+            # v11.15 : exposition CONSOLIDEE (CTO + PEA + PER)
             if tl in ["expo", "exposition", "diversification", "repartition"]:
                 send_telegram("⏳ Calcul de l exposition consolidee...")
                 total, lignes_exp, secteurs_exp, par_env = exposition_portefeuille()
@@ -2383,7 +2540,7 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
                 continue
 
-            # v11.13 : commande explicite pour un nom trop long pour le routage
+            # v11.15 : commande explicite pour un nom trop long pour le routage
             # automatique (plus de 3 mots, ex. "Rolls Royce Holdings PLC").
             if tl.startswith("ajoute ") or tl.startswith("ajouter ") or tl.startswith("suit "):
                 nom_demande = text.split(" ", 1)[1].strip() if " " in text else ""
@@ -2406,7 +2563,7 @@ def check_messages_telegram():
                     send_telegram("❌ " + str(info_ou_motif))
                 continue
 
-            # v11.13 : suivi de performance et ajustement automatique
+            # v11.15 : suivi de performance et ajustement automatique
             if tl in ["perf", "performance", "risque auto", "ajustement"]:
                 resultats = backtest_decisions()
                 n = len(resultats)
@@ -2446,7 +2603,43 @@ def check_messages_telegram():
                 send_telegram("\n".join(lg))
                 continue
 
-            # v11.13 : diagnostic des sources
+            # v11.15 : top indices — liste et bascule
+            if tl.startswith("indice"):
+                parts = tl.split()
+                m_i = load_memoire()
+                if len(parts) >= 2 and parts[1] in ["on", "off"]:
+                    actif = (parts[1] == "on")
+                    m_i.setdefault("params", {})["indices_dans_signaux"] = actif
+                    save_memoire(m_i)
+                    send_telegram(
+                        "📊 Top Nasdaq/S&amp;P dans les signaux : <b>{}</b>\n"
+                        "<i>{}</i>".format(
+                            "ACTIVE" if actif else "DESACTIVE",
+                            "18 valeurs de plus seront evaluees a chaque scan — "
+                            "attention, elles sont en CTO (cash 80EUR) et recoupent "
+                            "deja ton World et ton PER."
+                            if actif else
+                            "Elles restent consultables en tapant leur nom."))
+                    continue
+                ndx = sorted(v["nom"] for v in SEUILS.values()
+                             if "NDX" in str(v.get("indice", "")))
+                spx = sorted(v["nom"] for v in SEUILS.values()
+                             if "SPX" in str(v.get("indice", "")))
+                etat = m_i.get("params", {}).get("indices_dans_signaux", False)
+                send_telegram(
+                    "📊 <b>TOP NASDAQ-100 / S&amp;P 500</b>\n"
+                    "<i>Toutes en USD — CTO uniquement, non eligibles PEA.</i>\n\n"
+                    "<b>Nasdaq-100 ({}):</b>\n{}\n\n"
+                    "<b>S&amp;P 500 ({}):</b>\n{}\n\n"
+                    "Dans les signaux automatiques : <b>{}</b>\n"
+                    "Basculer : indices on | indices off\n"
+                    "<i>Tape le nom d une valeur pour sa fiche complete.</i>".format(
+                        len(ndx), " · ".join(ndx),
+                        len(spx), " · ".join(spx),
+                        "oui" if etat else "non (par defaut)"))
+                continue
+
+            # v11.15 : diagnostic des sources
             if tl in ["diag", "diagnostic", "sources", "health"]:
                 send_telegram("⏳ Test des sources en cours...")
                 send_telegram(diagnostic_sources())
@@ -2457,7 +2650,7 @@ def check_messages_telegram():
                 send_telegram("🧹 Cache vide ({} entrees). Prochaine requete = donnees fraiches.".format(n))
                 continue
 
-            # v11.13 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
+            # v11.15 : mise a jour de la valorisation PER (mise a l echelle proportionnelle)
             if tl.startswith("maj per"):
                 parts = tl.split()
                 if len(parts) >= 3:
@@ -2491,7 +2684,7 @@ def check_messages_telegram():
                     send_telegram("\n".join(lg))
                 continue
 
-            # v11.13 : fiche valeur — "danone", "sanofi", "HO.PA"...
+            # v11.15 : fiche valeur — "danone", "sanofi", "HO.PA"...
             # Placee juste avant le dialogue libre : si le texte designe une valeur
             # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
             if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
@@ -2502,7 +2695,7 @@ def check_messages_telegram():
                     send_telegram("⏳ Calcul de la fiche {}...".format(
                         obtenir_valeur(ticker_ar).get("nom", text)))
                 else:
-                    # v11.13 : nom inconnu -> recherche et validation automatiques
+                    # v11.15 : nom inconnu -> recherche et validation automatiques
                     # du ticker, AVANT de laisser tomber vers le dialogue libre.
                     send_telegram("🔎 '{}' pas encore suivi — je cherche son ticker...".format(text))
                     ticker_trouve, info_ou_motif = rechercher_et_valider_ticker(text)
@@ -2526,7 +2719,7 @@ def check_messages_telegram():
                 if fiche:
                     send_telegram(fiche)
                     continue
-                # v11.13 : un nom RECONNU dont la fiche echoue ne doit PAS
+                # v11.15 : un nom RECONNU dont la fiche echoue ne doit PAS
                 # basculer vers le dialogue libre — c est ce qui produisait
                 # une reponse en prose ("## Thales — Fiche CTO") au lieu de
                 # la fiche structuree, en donnant l illusion que tout va bien.
@@ -2547,7 +2740,7 @@ def check_messages_telegram():
             else:
                 web_actu = recherche_web_active()
             reponse = dialogue_contextuel(text, donnees_ok, geo_scores, web_actu)
-            send_telegram("🤖 <b>Agent v11.13 :</b>\n" + reponse)
+            send_telegram("🤖 <b>Agent v11.15 :</b>\n" + reponse)
         except Exception as e:
             print("[HANDLER] Erreur non prevue sur '{}' : {}".format(text[:60], e))
             send_telegram(
@@ -2556,7 +2749,7 @@ def check_messages_telegram():
 
 
 # ============================================================
-# DIAGNOSTIC SOURCES v11.13 — Telegram "diag"
+# DIAGNOSTIC SOURCES v11.15 — Telegram "diag"
 # Repond enfin a la question ouverte depuis des semaines : les flux
 # fonctionnent-ils vraiment, ou echouent-ils en silence ?
 # ============================================================
@@ -2684,7 +2877,7 @@ def formatter_capitol_telegram(trades):
 # INDICATEURS TECHNIQUES
 # ============================================================
 # ============================================================
-# CACHE MARCHE v11.13
+# CACHE MARCHE v11.15
 # fiche_valeur declenchait ~10 appels reseau (2 directs + 8 via exposition,
 # plus RSS et CapitolTrades). Avec le cache, une fiche coute 1 a 2 appels.
 # TTL court : les cours restent frais, on evite juste les rafales.
@@ -2719,7 +2912,7 @@ def ema(closes, periode):
     return round(ema_val, 4)
 
 # ============================================================
-# GARDE-TEMPS REEL v11.13
+# GARDE-TEMPS REEL v11.15
 #
 # La version precedente MESURAIT la duree et la loguait, sans jamais
 # interrompre l appel : si yfinance se bloquait, le bot restait fige
@@ -2977,7 +3170,7 @@ def capitol_emoji(ticker, capitol_trades):
 # ============================================================
 # MEMOIRE & BACKTESTING
 # ============================================================
-# --- Persistance GitHub de la memoire (v11.13) -------------------------------
+# --- Persistance GitHub de la memoire (v11.15) -------------------------------
 # /data/ et /tmp/ ne survivent pas aux redeploys Railway sans volume persistant.
 # La memoire (cash, decisions, stats) est donc versionnee dans le repo.
 MEMOIRE_GITHUB = os.environ.get("MEMOIRE_GITHUB", "data/memoire_matthieu.json")
@@ -3051,7 +3244,7 @@ def load_memoire():
     except: pass
     return {"decisions": [], "stats": {"bonnes": 0, "mauvaises": 0}}
 
-# --- Anti-boucle de redeploiement v11.13 -------------------------------------
+# --- Anti-boucle de redeploiement v11.15 -------------------------------------
 # CHAQUE ecriture GitHub cree un COMMIT. Si Railway est en auto-deploy sur le
 # repo, ce commit declenche un redeploiement : le bot redemarre, perd les
 # messages en cours, renvoie son message de demarrage, et recommence au scan
@@ -3161,7 +3354,7 @@ def get_eur_usd():
 EUR_USD_RATE = 1.08
 
 def calcul_pv(ticker, cours, enveloppe="CTO"):
-    """PV latente d une poche. v11.13 : la poche PEA etait ignoree."""
+    """PV latente d une poche. v11.15 : la poche PEA etait ignoree."""
     s = SEUILS.get(ticker, {})
     cours_eur = round(cours / EUR_USD_RATE, 2) if s.get("type") in ["CTO-US", "WATCH-US"] else cours
     if enveloppe.upper() == "PEA":
@@ -3337,7 +3530,7 @@ REPONDS EN 200 MOTS MAX :
         return None
 
 # ============================================================
-# ANALYSE COMPLETE v11.13
+# ANALYSE COMPLETE v11.15
 # - Bloc Portefeuille : format barre + verdict (comme la commande 'score')
 # - Section "Positions a regarder" : remplace l'ancien bloc "Signaux",
 #   liste TOUTES les valeurs WATCH/WATCH-US en ACHETER/PLUTOT ACHETER,
@@ -3371,7 +3564,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     news_p, news_m, geo_scores, geo_themes = get_news_et_geo()
     capitol_trades = get_capitol_trades()
     sentiment = get_sentiment(donnees_ok)
-    # v11.13 : le scan (deja hors boucle Telegram) remplit le cache d exposition
+    # v11.15 : le scan (deja hors boucle Telegram) remplit le cache d exposition
     # pour que les fiches consultees ensuite repondent sans aucune requete.
     try:
         exposition_portefeuille(donnees_ok)
@@ -3502,9 +3695,15 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     # Meme logique de scoring + memes filtres anti-contradiction que ci-dessus,
     # appliques aux valeurs en surveillance plutot qu'au portefeuille detenu.
     positions_a_regarder = []
+    indices_actifs = load_memoire().get("params", {}).get("indices_dans_signaux", False)
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
         if s.get("type") not in ["WATCH", "WATCH-US"]: continue
+        # v11.15 : les 18 valeurs du top Nasdaq/S&P sont exclues des signaux
+        # par defaut — aucun seuil de strategie defini, et elles recoupent
+        # deja largement le World et le PER. "indices on" pour les inclure.
+        if s.get("indice") and not indices_actifs:
+            continue
         if donnee_suspecte(d):
             continue
 
@@ -3714,7 +3913,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
            "<b>Portefeuille :</b>\n{}\n"
            "{}{}{}{}{}{}{}"
            "――――――――――――――――――――――\n"
-           "🤖 <b>Agent v11.13 :</b>\n{}\n"
+           "🤖 <b>Agent v11.15 :</b>\n{}\n"
            "――――――――――――――――――――――\n"
            "<i>Nom de valeur → reco | 'expo' | 'perf' | 'diag' | 'risque X' | 'cash pea X'</i>").format(
         emoji_msg, titre, now,
@@ -3989,7 +4188,7 @@ Reponds en JSON strict (sans markdown) :
 
 
 def auto_optimisation_avec_patch():
-    """v11.13 : photo de valeur -> ajustement du profil -> optimisation des seuils.
+    """v11.15 : photo de valeur -> ajustement du profil -> optimisation des seuils.
     L ordre compte : le profil doit etre reajuste AVANT que les seuils soient
     optimises, sinon on optimise des parametres qu on vient de remplacer."""
     historiser_valeur()
@@ -4031,7 +4230,7 @@ def auto_optimisation_avec_patch():
 
 
 # ============================================================
-# AUTO-DESENSIBILISATION v11.13
+# AUTO-DESENSIBILISATION v11.15
 #
 # Le bot mesure ses propres resultats et redescend TOUT SEUL vers un profil
 # plus prudent quand ils se degradent. C est le mecanisme demande : ne plus
@@ -4198,7 +4397,7 @@ if __name__ == "__main__":
     bot_start_time = int(datetime.now(PARIS_TZ).timestamp())
     print("[INIT] Taux EUR/USD : {}".format(EUR_USD_RATE))
     print("=" * 55)
-    print(" Agent Trading Matthieu v11.13 — fin de la boucle de redeploiement")
+    print(" Agent Trading Matthieu v11.15 — fin de la boucle de redeploiement")
     print(" Fiche valeur Telegram | Exposition sectorielle | Profil de risque")
     print(" Univers elargi : sante, conso, finance, infra, ETF PEA")
     print("=" * 55)
@@ -4217,7 +4416,7 @@ if __name__ == "__main__":
     if envoyer_demarrage:
         verrou.write_text(datetime.now(PARIS_TZ).isoformat())
         send_telegram(
-            "🚀 <b>Agent Trading v11.13 — diversification</b>\n\n"
+            "🚀 <b>Agent Trading v11.15 — diversification</b>\n\n"
             "📇 <b>Fiche valeur</b> : tape simplement <i>danone</i>, <i>sanofi</i>, <i>thales</i>...\n"
             "   → score, indicateurs, filtres applicables, taille compatible, flat tax\n"
             "📐 <b>expo</b> : poids par ligne et par secteur, plafonds, secteurs absents\n"
@@ -4251,7 +4450,7 @@ if __name__ == "__main__":
                 print("[SCAN] {} — marches fermes, silence".format(
                     maintenant.strftime("%H:%M")))
 
-        # v11.13 : controle quotidien du repli. L ajustement hebdomadaire est trop
+        # v11.15 : controle quotidien du repli. L ajustement hebdomadaire est trop
         # lent si le portefeuille decroche en pleine semaine.
         est_1730 = maintenant.hour == 17 and maintenant.minute >= 30
         pas_verifie_auj = dernier_controle_dd.date() < maintenant.date()
@@ -4279,9 +4478,12 @@ if __name__ == "__main__":
             print("[OPTIM] Demarrage auto-optimisation v11.0")
             auto_optimisation_avec_patch()
 
+        # v11.15 : deux passages par semaine (lundi et jeudi) au lieu d un seul,
+        # pour ne pas rater les catalyseurs de milieu de semaine.
         est_08h45 = maintenant.hour == 8 and maintenant.minute >= 45
+        est_jour_decouverte = maintenant.weekday() in (0, 3)
         pas_decouvert_auj = dernier_decouverte.date() < maintenant.date()
-        if est_lundi and est_08h45 and pas_decouvert_auj:
+        if est_jour_decouverte and est_08h45 and pas_decouvert_auj:
             dernier_decouverte = maintenant
             print("[DECOUVERTE] Lancement recherche societes emergentes")
             decouverte_societes_emergentes()
