@@ -167,7 +167,7 @@
   },
   "dernier_scan": "10/08/2026 13:57",
   "params": {
-    "cash_dispo": 79.74
+    "cash_dispo": 1500.0
   },
   "derniere_optimisation": "03/08/2026 08:30",
   "regle_apprise": "Parsing JSON echoue — voir logs Railway",
