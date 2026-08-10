@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
 """
+Agent Trading Matthieu v11.16 — rééquilibrage du moteur de score
+Nouveautes v11.16 :
+- Moteur de score enrichi (stochastique, momentum, fondamental) SANS faire
+  exploser le seuil de 45pts : rééquilibrage, pas simple ajout.
+  Le bloc RSI brut (max 45pts) est remplace par un bloc "dynamique" qui
+  fusionne RSI + stochastique + momentum en UN SEUL sous-score (cf.
+  analyse_etendue.py) — ces trois indicateurs etant correles, les additionner
+  a plat aurait compte trois fois le meme signal. Meme budget de points
+  qu avant (45), desormais sanity-checke par 2 indicateurs de plus.
+- Bonus fondamental (PER, ROE, endettement, croissance) ajoute au score
+  achat, plafonne a 15pts et actif seulement si couverture yfinance >= 40% —
+  ne doit jamais dominer un signal de swing (jours/semaines), et la
+  couverture est trouee sur les valeurs europeennes.
+- Verification croisee du cours (verification_cours_v2.py, Stooq/Twelve
+  Data/FMP, consensus par mediane) branchee en garde-fou independant : un
+  signal n est emis que si le cours n est pas juge "suspect" (ecart >3%
+  entre sources). Sans cle API configuree sur Railway, no-op transparent.
+- score_dynamique et score_fondamental exposes dans le dict retourne par
+  calcul_indicateurs() pour visibilite (fiche valeur, diag).
+
 Agent Trading Matthieu v11.15 — fin de la boucle de redeploiement
 Nouveautes vs v10.8 :
 - SPCX integre en position reelle CTO-US : 1 titre @ 117.03EUR (vente partielle 12/06, +25.72EUR realises)
@@ -197,6 +217,8 @@ Heritage v11.3 :
 
 import os, re, unicodedata, yfinance as yf, requests, anthropic, schedule, time, feedparser, json
 import socket
+from analyse_etendue import compute_stochastique, compute_momentum, score_dynamique, get_fondamentaux, score_fondamental
+from verification_cours_v2 import verifier_cours
 
 # v11.15 : feedparser n expose aucun parametre de timeout et utilise urllib,
 # qui attend INDEFINIMENT par defaut. Trois flux morts x ~8s d attente =
@@ -3052,18 +3074,66 @@ def _calcul_indicateurs_brut(ticker):
 
         t1m = round((closes[-1] - closes[-22]) / closes[-22] * 100, 1) if len(closes) >= 22 else None
 
+        # v11.16 : bloc "dynamique" (RSI + stochastique + momentum fusionnes
+        # en un seul sous-score, cf. analyse_etendue.py) et bonus fondamental.
+        # Recalcules a partir du meme historique hist, independamment du RSI
+        # deja calcule ci-dessus, pour ne rien risquer sur le calcul existant.
+        score_dynamique_val = None
+        dyn_pts_achat, dyn_pts_vente = 0, 0
+        try:
+            hist_ohlc = hist.dropna(subset=["Close", "High", "Low"])
+            if len(hist_ohlc) >= 20 and rsi is not None:
+                closes_full = hist_ohlc["Close"].tolist()
+                highs_full  = hist_ohlc["High"].tolist()
+                lows_full   = hist_ohlc["Low"].tolist()
+                stoch = compute_stochastique(highs_full, lows_full, closes_full)
+                mom   = compute_momentum(closes_full)
+                dyn   = score_dynamique(rsi, stoch, mom)
+                score_dynamique_val = dyn["score_dynamique"]
+                # Rescale 0-100 (100 = tres favorable achat) sur le meme
+                # budget de points que l ancien bloc RSI seul (45pts) :
+                # meme poids qu avant, desormais sanity-checke par 2
+                # indicateurs de plus au lieu du RSI seul.
+                ecart = score_dynamique_val - 50
+                if ecart > 0:
+                    dyn_pts_achat = round(ecart / 50 * 45, 1)
+                elif ecart < 0:
+                    dyn_pts_vente = round(-ecart / 50 * 45, 1)
+        except Exception as e:
+            print("[DYNAMIQUE {}] {}".format(ticker, str(e)[:80]))
+
+        score_fondamental_val = None
+        fonda_pts = 0
+        try:
+            fonda = get_fondamentaux(ticker)
+            sf = score_fondamental(fonda)
+            # Bonus achat uniquement, plafonne a 15pts : le fondamental ne
+            # doit jamais dominer un signal de swing (jours/semaines), et la
+            # couverture yfinance est trouee sur les valeurs europeennes —
+            # d ou le seuil de couverture 40% avant d en tenir compte.
+            if sf.get("score_fondamental") is not None and sf.get("couverture", 0) >= 40:
+                score_fondamental_val = sf["score_fondamental"]
+                fonda_pts = round(score_fondamental_val / 100 * 15, 1)
+        except Exception as e:
+            print("[FONDAMENTAL {}] {}".format(ticker, str(e)[:80]))
+
         score_achat, score_vente = 0, 0
         signaux_achat, signaux_vente = [], []
 
-        if rsi is not None:
-            if rsi < 20:
-                score_achat += 45; signaux_achat.append("RSI CRITIQUE ({}) !!".format(rsi))
-            elif rsi < 30:
-                score_achat += 35; signaux_achat.append("RSI survendu ({})".format(rsi))
-            elif rsi > 80:
-                score_vente += 45; signaux_vente.append("RSI EXTREME ({}) !!".format(rsi))
-            elif rsi > 70:
-                score_vente += 35; signaux_vente.append("RSI surchete ({})".format(rsi))
+        if dyn_pts_achat > 0:
+            score_achat += dyn_pts_achat
+            signaux_achat.append("Dynamique {:.0f}/100 (RSI+stoch+mom)".format(score_dynamique_val))
+        elif dyn_pts_vente > 0:
+            score_vente += dyn_pts_vente
+            signaux_vente.append("Dynamique {:.0f}/100 (RSI+stoch+mom)".format(score_dynamique_val))
+        if rsi is not None and rsi < 20:
+            signaux_achat.append("RSI CRITIQUE ({}) !!".format(rsi))
+        elif rsi is not None and rsi > 80:
+            signaux_vente.append("RSI EXTREME ({}) !!".format(rsi))
+
+        if fonda_pts > 0:
+            score_achat += fonda_pts
+            signaux_achat.append("Fondamental {:.0f}/100 (+{}pts)".format(score_fondamental_val, fonda_pts))
 
         if macd_croise == "HAUSSIER":
             score_achat += 30; signaux_achat.append("MACD croisement haussier")
@@ -3118,7 +3188,8 @@ def _calcul_indicateurs_brut(ticker):
             "tendance_1m": t1m, "signal_tech": signal,
             "score_achat": score_achat, "score_vente": score_vente,
             "signaux_achat": signaux_achat, "signaux_vente": signaux_vente,
-            "high_52w": high_52w, "low_52w": low_52w
+            "high_52w": high_52w, "low_52w": low_52w,
+            "score_dynamique": score_dynamique_val, "score_fondamental": score_fondamental_val
         }
     except Exception as e:
         print("[ERREUR " + ticker + "] " + str(e))
@@ -3137,7 +3208,8 @@ def _calcul_indicateurs_brut(ticker):
                     "tendance_1m": None, "signal_tech": "INCONNU",
                     "score_achat": 0, "score_vente": 0,
                     "signaux_achat": [], "signaux_vente": [],
-                    "high_52w": None, "low_52w": None}
+                    "high_52w": None, "low_52w": None,
+                    "score_dynamique": None, "score_fondamental": None}
         except:
             return None
 
@@ -3609,7 +3681,19 @@ def analyse_complete(moment="scan", force=False, session="EU"):
 
         detenu = bool(s.get("quantite"))
 
-        if score_a >= seuil_score:
+        # v11.16 : verification croisee du cours (verification_cours_v2.py)
+        # uniquement quand un signal serait effectivement declenche — pas a
+        # chaque ticker a chaque scan, pour rester dans le quota gratuit des
+        # sources (Twelve Data 800/j, FMP 250/j). Sans cle configuree sur
+        # Railway, verifier_cours reste un no-op (signal_autorise=True).
+        verif_prix = None
+        if score_a >= seuil_score or (score_v >= seuil_score and detenu):
+            verif_prix = verifier_cours(d["ticker"], d["cours"])
+            if not verif_prix["signal_autorise"]:
+                print("[VERIF_COURS] {} : {}".format(d["ticker"], verif_prix["message"]))
+                alertes_seuil.append("⚠️ {} : {}".format(s["nom"], verif_prix["message"]))
+
+        if score_a >= seuil_score and (verif_prix is None or verif_prix["signal_autorise"]):
             nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
                 "ticker": d["ticker"], "nom": s["nom"],
@@ -3619,7 +3703,7 @@ def analyse_complete(moment="scan", force=False, session="EU"):
                 "variation": d["variation"],
                 "nb_actions": nb_actions
             })
-        elif score_v >= seuil_score and detenu:
+        elif score_v >= seuil_score and detenu and (verif_prix is None or verif_prix["signal_autorise"]):
             signaux_forts.append({
                 "ticker": d["ticker"], "nom": s["nom"],
                 "type": "VENTE", "score": score_v,
