@@ -388,7 +388,9 @@ SEUILS = {
     # AIL.PA -> AI.PA : meme cause, mauvais ticker (yfinance "possibly
     # delisted"). Seuils rafraichis sur MM200/plus haut 1 an.
     "AI.PA":   {"nom": "Air Liquide",       "achat": 155.00,"vente": 190.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
-    "NVDA":    {"nom": "Nvidia",            "achat": 190.00,"vente": 250.00,"type": "WATCH-US","secteur": "IA/Puces"},
+    # v11.17 : position reelle depuis 11/08/2026 (3 titres @ 191.43EUR PRU,
+    # releve Boursobank) -> WATCH-US devient CTO-US, quantite/px_revient ajoutes.
+    "NVDA":    {"nom": "Nvidia",            "achat": 190.00,"vente": 250.00,"type": "CTO-US", "secteur": "IA/Puces", "quantite": 3, "px_revient": 191.43},
     # v11.17 : TSMC ajoutee en CTO-US (demande explicite, annonce partenariat
     # Sony), quantite 0 -> generera des alertes ACHAT automatiques comme
     # Airbus/Safran, mais aucune position reelle. Seuils : MM200 (achat) /
