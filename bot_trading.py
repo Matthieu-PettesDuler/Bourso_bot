@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
 """
+Agent Trading Matthieu v11.17 — filtre de tendance sur la vente
+Nouveautes v11.17 :
+- Filtre de tendance MM200 sur les signaux de VENTE uniquement. Backteste
+  sur backtest_technique.py (5 ans, composante technique seule, 11 valeurs
+  CTO + Safran/Airbus/Boeing/Orange/ETF) : sans filtre, le moteur sortait
+  des qu un surachat court terme (RSI/MACD/Bollinger) declenchait le score,
+  meme en pleine tendance haussiere de fond — il coupait les gagnants trop
+  tot (ecart moyen vs buy&hold : -78pts). Avec le filtre (VENTE executee
+  seulement si le cours est repasse sous la MM200, donc que la tendance de
+  fond est elle-meme retournee) : -39pts, amelioration sur 8 valeurs/11.
+  MM100 teste aussi (-46pts en moyenne, moins bon). N affecte QUE la vente :
+  l ACHAT est inchange, le bot ne devient jamais plus agressif, seulement
+  plus patient avant de sortir d une position gagnante. Quand le filtre
+  bloque une vente, une ligne informative apparait dans les alertes du scan
+  ("tendance de fond toujours haussiere — position maintenue").
+
 Agent Trading Matthieu v11.16 — rééquilibrage du moteur de score
 Nouveautes v11.16 :
 - Moteur de score enrichi (stochastique, momentum, fondamental) SANS faire
@@ -460,6 +476,9 @@ SEUILS = {
     "ABI.BR":  {"nom": "AB InBev",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Boissons",          "indice": "SX5E"},
     # -- Gestion d actifs US (demande explicite) --
     "BLK":     {"nom": "BlackRock",         "achat": None, "vente": None, "type": "WATCH-US", "secteur": "Gestion d actifs","indice": "SPX"},
+
+    # ---- ETF THEMATIQUE v11.16 (CTO, demande explicite) ----
+    "SMH":     {"nom": "VanEck Semiconductor ETF", "achat": None, "vente": None, "type": "WATCH-US", "secteur": "ETF Semi-conducteurs"},
 
     # ---- BRIQUES A BETA ELEVE v11.15 ----
     # Le levier honnete du risque : plus de volatilite du sous-jacent, pas moins
@@ -2996,7 +3015,12 @@ def calcul_indicateurs(ticker, use_cache=True):
 def _calcul_indicateurs_brut(ticker):
     try:
         t = yf.Ticker(ticker)
-        hist = t.history(period="6mo", interval="1d")
+        # v11.17 : 6mo -> 1y. La MM200 (filtre de tendance sur la vente,
+        # cf. changelog) a besoin de 200 seances : 6 mois (~126 seances) ne
+        # suffisait jamais, mm200 valait systematiquement None en prod. 1y
+        # (~252 seances) laisse une marge suffisante, pour 1 seul appel
+        # yfinance de plus par ticker (pas d appel supplementaire).
+        hist = t.history(period="1y", interval="1d")
         s_cfg = SEUILS.get(ticker, {})
         min_jours = 5 if s_cfg.get("ipo") else 26
         if len(hist) < min_jours:
@@ -3705,14 +3729,31 @@ def analyse_complete(moment="scan", force=False, session="EU"):
                 "nb_actions": nb_actions
             })
         elif score_v >= seuil_score and detenu and (verif_prix is None or verif_prix["signal_autorise"]):
-            signaux_forts.append({
-                "ticker": d["ticker"], "nom": s["nom"],
-                "type": "VENTE", "score": score_v,
-                "cours": d["cours"], "rsi": d.get("rsi"),
-                "rsi_niveau": d.get("rsi_niveau",""),
-                "variation": d["variation"],
-                "nb_actions": s.get("quantite", 1)
-            })
+            # v11.17 : filtre de tendance MM200 sur la VENTE. Backtest 5 ans
+            # (technique seule) : le moteur sans filtre sortait des qu un
+            # surachat court terme (RSI/MACD/Bollinger) declenchait le score,
+            # meme en pleine tendance haussiere de fond — il coupait les
+            # gagnants trop tot. Ecart moyen vs buy&hold : -78pts. Avec ce
+            # filtre (VENTE executee seulement si le cours repasse sous la
+            # MM200, donc tendance de fond elle-meme retournee) : -39pts,
+            # amelioration sur 8 valeurs/11 testees. Ne s applique qu a la
+            # VENTE : l ACHAT n est pas touche, le bot ne devient jamais plus
+            # agressif, seulement plus patient avant de sortir.
+            tendance_baissiere = d.get("mm200") is None or d["cours"] < d["mm200"]
+            if tendance_baissiere:
+                signaux_forts.append({
+                    "ticker": d["ticker"], "nom": s["nom"],
+                    "type": "VENTE", "score": score_v,
+                    "cours": d["cours"], "rsi": d.get("rsi"),
+                    "rsi_niveau": d.get("rsi_niveau",""),
+                    "variation": d["variation"],
+                    "nb_actions": s.get("quantite", 1)
+                })
+            else:
+                alertes_seuil.append(
+                    "📈 {} : signal vente technique ({} pts) mais tendance de fond "
+                    "toujours haussiere (cours > MM200) — position maintenue".format(
+                        s["nom"], round(score_v)))
         elif d.get("rsi_niveau") == "CRITIQUE":
             nb_actions = calcul_position_size(score_a, d["cours"], cash_dispo)
             signaux_forts.append({
