@@ -1411,9 +1411,13 @@ def recherche_web_claude():
                   "Microsoft Capgemini Orange BNP Safran SpaceX(SPCX). "
                   "Reponds UNIQUEMENT avec 3 bullet points : "
                   "• Societe : news → haussier/baissier").format(date_str)
+        # v11.17 : 200 -> 800 (meme raison que les autres appels web_search,
+        # cf. commentaire sur analyse_claude : budget de tokens trop juste
+        # avec claude-sonnet-5 une fois le cout de la reflexion interne pris
+        # en compte).
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=200,
+            max_tokens=800,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
@@ -1529,9 +1533,9 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
     if len(HISTORIQUE_CONVERSATION) > 8:
         HISTORIQUE_CONVERSATION = HISTORIQUE_CONVERSATION[-8:]
     try:
-        msg = client.messages.create(
+        msg = client.messages.create(  # v11.17 : 250 -> 600, meme raison
             model=CLAUDE_MODEL,
-            max_tokens=250,
+            max_tokens=600,
             system=build_system_prompt(),
             messages=HISTORIQUE_CONVERSATION
         )
@@ -1942,8 +1946,8 @@ def rechercher_et_valider_ticker(nom_demande):
             '"marche":"FR ou US ou autre"}}. Si tu n es pas raisonnablement certain '
             'du ticker exact, reponds {{"ticker":null}}.'
         ).format(nom_demande[:60])
-        msg = client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=250,
+        msg = client.messages.create(  # v11.17 : 250 -> 700, meme raison
+            model=CLAUDE_MODEL, max_tokens=700,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
@@ -3685,9 +3689,17 @@ REPONDS EN 200 MOTS MAX :
     global DERNIERE_ERREUR_CLAUDE
     try:
         attendre_rate_limit()
+        # v11.17 : 450 -> 1200. Le texte visible s arretait en pleine phrase
+        # ("...Thales (") malgre la consigne "200 mots max" dans le prompt —
+        # signature d une reponse tronquee par max_tokens plutot qu une
+        # reponse complete. Avec claude-sonnet-5, les tokens de reflexion
+        # interne (ThinkingBlock, cf. extraire_texte_claude) sont deduits du
+        # meme budget max_tokens que le texte visible : 450 ne laissait plus
+        # assez de marge. Le prompt continue de demander 200 mots max, seul
+        # le plafond dur est releve.
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=450,
+            max_tokens=1200,
             messages=[{"role": "user", "content": prompt}])
         resultat = extraire_texte_claude(msg)
         if resultat and len(resultat) > 20:
@@ -4300,9 +4312,9 @@ Reponds en JSON strict (sans markdown) :
 
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        resp = client.messages.create(
+        resp = client.messages.create(  # v11.17 : 400 -> 900, meme raison
             model=CLAUDE_MODEL,
-            max_tokens=400,
+            max_tokens=900,
             messages=[{"role": "user", "content": prompt_optim}]
         )
         raw = extraire_texte_claude(resp)
@@ -4418,9 +4430,9 @@ def auto_optimisation_avec_patch():
     if taux_echec > 0.4 and ANTHROPIC_API_KEY:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         try:
-            msg = client.messages.create(
+            msg = client.messages.create(  # v11.17 : 200 -> 600, meme raison
                 model=CLAUDE_MODEL,
-                max_tokens=200,
+                max_tokens=600,
                 messages=[{"role": "user", "content":
                     "Le bot de trading a un taux d echec de {:.0f}%. "
                     "Les mauvaises decisions recentes : {}. "
