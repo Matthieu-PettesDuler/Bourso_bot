@@ -259,7 +259,7 @@ BOT_FILE_LOCAL    = "/app/bot_trading.py"
 PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
 CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifiable via Telegram "cash X"
-CLAUDE_MODEL      = "claude-sonnet-4-6"
+CLAUDE_MODEL      = "claude-sonnet-5"
 
 # ============================================================
 # PROFIL DE RISQUE v11.15 — Telegram : "risque offensif"
@@ -331,56 +331,73 @@ def protection_dividende(ticker):
 # ============================================================
 SEUILS = {
     # CTO — Positions reelles
-    "ORA.PA":  {"nom": "Orange",            "achat": 15.50, "vente": 20.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
-    "CAP.PA":  {"nom": "Capgemini",         "achat": 85.00, "vente": 130.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 0,  "px_revient": 0},
-    "TTE.PA":  {"nom": "TotalEnergies",     "achat": 68.00, "vente": 95.00, "type": "CTO",     "secteur": "Energie",      "quantite": 33, "px_revient": 72.23,
+    "ORA.PA":  {"nom": "Orange",            "achat": 16.00, "vente": 19.00, "type": "CTO",     "secteur": "Telecom",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
+    "CAP.PA":  {"nom": "Capgemini",         "achat": 110.00,"vente": 155.00,"type": "CTO",     "secteur": "IA/Tech",      "quantite": 0,  "px_revient": 0},
+    "TTE.PA":  {"nom": "TotalEnergies",     "achat": 65.00, "vente": 85.00, "type": "CTO",     "secteur": "Energie",      "quantite": 33, "px_revient": 72.23,
                 "pea": {"quantite": 9, "px_revient": 67.49}},
-    "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
-    "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
-    "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
-    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 14, "px_revient": 235.58},
-    "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
+    "BNP.PA":  {"nom": "BNP Paribas",       "achat": 85.00, "vente": 120.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
+    # Seuils rafraichis 10/08/2026 : achat = proche MM200 (support technique),
+    # vente = au-dessus du plus haut 1 an. Les anciens seuils (145/195 et
+    # 250/340) etaient sous le cours actuel depuis longtemps, donc muets.
+    "AIR.PA":  {"nom": "Airbus",            "achat": 190.00,"vente": 250.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
+    "SAF.PA":  {"nom": "Safran",            "achat": 310.00,"vente": 420.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
+    # v11.17 : secteur harmonise "Defense/IA" -> "Defense" (etait "Defense/IA",
+    # different du libelle "Defense" de AM.PA/SAF.PA). Le plafond sectoriel
+    # (max_secteur, cf. RISK_PROFILES) agrege par libelle de secteur EXACT :
+    # avec deux libelles differents pour le meme secteur, il ne voyait jamais
+    # que Thales et Dassault Aviation sont fortement correlees (+0.83 sur
+    # rendements journaliers, stable de 6 mois a 5 ans, cf. analyse_correlations.py)
+    # et sous-estimait la vraie concentration defense du portefeuille.
+    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.58},
+    "AM.PA":   {"nom": "Dassault Aviation", "achat": 300.00,"vente": 360.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
                 "pea": {"quantite": 2, "px_revient": 295.03}},
-    "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
-    "MSFT":    {"nom": "Microsoft",         "achat": 300.00,"vente": 480.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 2,  "px_revient": 330.82},
+    "SU.PA":   {"nom": "Schneider Electric","achat": 250.00,"vente": 320.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
+    "MSFT":    {"nom": "Microsoft",         "achat": 430.00,"vente": 570.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 2,  "px_revient": 330.82},
     # SPCX — POSITION REELLE depuis IPO 12/06/2026
     # 2 titres alloues @117.03EUR, 1 vendu 12/06 @~146.5EUR (+25.72EUR realises)
     # achat=112EUR : zone de renforcement si repli post-IPO | vente=200EUR : objectif long terme
     "SPCX":    {"nom": "SpaceX",            "achat": 112.00,"vente": 200.00,"type": "CTO-US",  "secteur": "Spatial/IA",   "quantite": 1,  "px_revient": 117.03, "ipo": True, "ipo_date": "2026-06-12"},
     # Surveillance
-    "DSY.PA":  {"nom": "Dassault Systemes", "achat": 15.00, "vente": 38.00, "type": "WATCH",   "secteur": "Tech/IA"},
+    "DSY.PA":  {"nom": "Dassault Systemes", "achat": 20.00, "vente": 31.00, "type": "WATCH",   "secteur": "Tech/IA"},
     # CORRECTION v11.15 : "EN.PA" etait etiquete "Edenred" — c est en realite
     # le code de BOUYGUES sur Euronext Paris (verifie 08/08/2026). Edenred
     # cote sous EDEN.PA. Le bot suivait donc Bouygues en affichant "Edenred"
     # depuis le debut : tout signal sur cette ligne portait sur la mauvaise
     # societe. Les deux sont desormais presentes, sous leur vrai code.
-    "EN.PA":   {"nom": "Bouygues",          "achat": 30.00, "vente": 48.00, "type": "WATCH",   "secteur": "Construction/Telecom"},
-    "EDEN.PA": {"nom": "Edenred",           "achat": 16.00, "vente": 30.00, "type": "WATCH",   "secteur": "Fintech"},
-    "ADP.PA":  {"nom": "ADP Aeroports",     "achat": 90.00, "vente": 140.00,"type": "WATCH",   "secteur": "Infrastructure"},
-    "MC.PA":   {"nom": "LVMH",              "achat": 450.00,"vente": 750.00,"type": "WATCH",   "secteur": "Luxe"},
-    "RMS.PA":  {"nom": "Hermes",            "achat": 2000.00,"vente":3500.00,"type": "WATCH",  "secteur": "Luxe"},
-    "KER.PA":  {"nom": "Kering",            "achat": 200.00,"vente": 380.00,"type": "WATCH",   "secteur": "Luxe"},
-    "SOI.PA":  {"nom": "Soitec",            "achat": 80.00, "vente": 160.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
-    "STM.PA":  {"nom": "STMicroelectronics","achat": 15.00, "vente": 35.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
-    "VIE.PA":  {"nom": "Veolia",            "achat": 25.00, "vente": 40.00, "type": "WATCH",   "secteur": "Eau/Environnement",
+    "EN.PA":   {"nom": "Bouygues",          "achat": 46.00, "vente": 56.00, "type": "WATCH",   "secteur": "Construction/Telecom"},
+    "EDEN.PA": {"nom": "Edenred",           "achat": 20.00, "vente": 31.00, "type": "WATCH",   "secteur": "Fintech"},
+    "ADP.PA":  {"nom": "ADP Aeroports",     "achat": 110.00,"vente": 135.00,"type": "WATCH",   "secteur": "Infrastructure"},
+    "MC.PA":   {"nom": "LVMH",              "achat": 530.00,"vente": 670.00,"type": "WATCH",   "secteur": "Luxe"},
+    "RMS.PA":  {"nom": "Hermes",            "achat": 1850.00,"vente":2350.00,"type": "WATCH",  "secteur": "Luxe"},
+    "KER.PA":  {"nom": "Kering",            "achat": 270.00,"vente": 360.00,"type": "WATCH",   "secteur": "Luxe"},
+    "SOI.PA":  {"nom": "Soitec",            "achat": 75.00, "vente": 200.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
+    # v11.17 : STM.PA renvoyait "possibly delisted" chez yfinance — le bon
+    # ticker est STMPA.PA. Seuils rafraichis sur MM200/plus haut 1 an.
+    "STMPA.PA":{"nom": "STMicroelectronics","achat": 37.00, "vente": 73.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
+    "VIE.PA":  {"nom": "Veolia",            "achat": 32.00, "vente": 39.00, "type": "WATCH",   "secteur": "Eau/Environnement",
                 "pea": {"quantite": 10, "px_revient": 35.22}},
-    "ETL.PA":  {"nom": "Eutelsat",          "achat": 3.00,  "vente": 8.00,  "type": "WATCH",   "secteur": "Spatial",
+    "ETL.PA":  {"nom": "Eutelsat",          "achat": 2.50,  "vente": 4.50,  "type": "WATCH",   "secteur": "Spatial",
                 "pea": {"quantite": 50, "px_revient": 2.14}},
-    "MCPHY.PA":{"nom": "McPhy Energy",      "achat": 5.00,  "vente": 15.00, "type": "WATCH",   "secteur": "Hydrogene"},
-    "AIL.PA":  {"nom": "Air Liquide",       "achat": 140.00,"vente": 200.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
-    "NVDA":    {"nom": "Nvidia",            "achat": 100.00,"vente": 220.00,"type": "WATCH-US","secteur": "IA/Puces"},
-    "GE":      {"nom": "GE Aerospace",      "achat": 240.00,"vente": 370.00,"type": "WATCH-US","secteur": "Defense"},
-    "PLTR":    {"nom": "Palantir",          "achat": 100.00,"vente": 200.00,"type": "WATCH-US","secteur": "Defense/IA"},
-    "GOOGL":   {"nom": "Alphabet/Google",   "achat": 250.00,"vente": 450.00,"type": "WATCH-US","secteur": "IA/Cloud"},
+    # v11.17 : MCPHY.PA retiree — la societe a change de ticker (ALMCP, suite
+    # au passage Euronext Paris -> Euronext Growth Paris en 08/2024) et
+    # yfinance ne couvre pas le nouveau ticker (verifie, plusieurs variantes
+    # testees). Suivi silencieusement casse depuis cette date, jamais detecte.
+    # AIL.PA -> AI.PA : meme cause, mauvais ticker (yfinance "possibly
+    # delisted"). Seuils rafraichis sur MM200/plus haut 1 an.
+    "AI.PA":   {"nom": "Air Liquide",       "achat": 155.00,"vente": 190.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
+    "NVDA":    {"nom": "Nvidia",            "achat": 190.00,"vente": 250.00,"type": "WATCH-US","secteur": "IA/Puces"},
+    "GE":      {"nom": "GE Aerospace",      "achat": 320.00,"vente": 400.00,"type": "WATCH-US","secteur": "Defense"},
+    "PLTR":    {"nom": "Palantir",          "achat": 150.00,"vente": 220.00,"type": "WATCH-US","secteur": "Defense/IA"},
+    "GOOGL":   {"nom": "Alphabet/Google",   "achat": 330.00,"vente": 420.00,"type": "WATCH-US","secteur": "IA/Cloud"},
     # ---- DIVERSIFICATION v11.15 : secteurs totalement absents du portefeuille ----
-    "SAN.PA":  {"nom": "Sanofi",            "achat": 78.00, "vente": 115.00,"type": "WATCH",   "secteur": "Sante"},
-    "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 200.00,"vente": 300.00,"type": "WATCH",   "secteur": "Sante/Optique"},
-    "BN.PA":   {"nom": "Danone",            "achat": 60.00, "vente": 85.00, "type": "WATCH",   "secteur": "Conso de base"},
-    "OR.PA":   {"nom": "L Oreal",           "achat": 320.00,"vente": 480.00,"type": "WATCH",   "secteur": "Conso de base"},
-    "RI.PA":   {"nom": "Pernod Ricard",     "achat": 85.00, "vente": 140.00,"type": "WATCH",   "secteur": "Conso de base"},
-    "CS.PA":   {"nom": "AXA",               "achat": 32.00, "vente": 48.00, "type": "WATCH",   "secteur": "Assurance"},
-    "ACA.PA":  {"nom": "Credit Agricole",   "achat": 12.00, "vente": 20.00, "type": "WATCH",   "secteur": "Banque"},
-    "DG.PA":   {"nom": "Vinci",             "achat": 100.00,"vente": 145.00,"type": "WATCH",   "secteur": "Infrastructure"},
+    "SAN.PA":  {"nom": "Sanofi",            "achat": 75.00, "vente": 90.00, "type": "WATCH",   "secteur": "Sante"},
+    "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 220.00,"vente": 330.00,"type": "WATCH",   "secteur": "Sante/Optique"},
+    "BN.PA":   {"nom": "Danone",            "achat": 70.00, "vente": 80.00, "type": "WATCH",   "secteur": "Conso de base"},
+    "OR.PA":   {"nom": "L Oreal",           "achat": 370.00,"vente": 420.00,"type": "WATCH",   "secteur": "Conso de base"},
+    "RI.PA":   {"nom": "Pernod Ricard",     "achat": 70.00, "vente": 100.00,"type": "WATCH",   "secteur": "Conso de base"},
+    "CS.PA":   {"nom": "AXA",               "achat": 39.00, "vente": 48.00, "type": "WATCH",   "secteur": "Assurance"},
+    "ACA.PA":  {"nom": "Credit Agricole",   "achat": 16.00, "vente": 21.00, "type": "WATCH",   "secteur": "Banque"},
+    "DG.PA":   {"nom": "Vinci",             "achat": 125.00,"vente": 145.00,"type": "WATCH",   "secteur": "Infrastructure"},
 
     # PEA — socle indiciel
     "WPEA.PA": {"nom": "iShares World PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
@@ -493,8 +510,10 @@ SEUILS = {
     # CRYPTO — ETNs CoinShares Euronext
     "BITC.AS": {"nom": "CS Bitcoin",  "achat": 50.00, "vente": 120.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     "CETH.AS": {"nom": "CS Ethereum", "achat": 40.00, "vente": 100.00,"type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
-    "SLNC.AS": {"nom": "CS Solana",   "achat": 5.00,  "vente": 20.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
-    "CXRP.AS": {"nom": "CS XRP",      "achat": 30.00, "vente": 80.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
+    # v11.17 : SLNC.AS/CXRP.AS renvoyaient "possibly delisted" — bonnes
+    # cotations trouvees sur le marche suisse (.SW) via yfinance.
+    "SLNC.SW": {"nom": "CS Solana",   "achat": 5.00,  "vente": 20.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
+    "XRPL.SW": {"nom": "CS XRP",      "achat": 30.00, "vente": 80.00, "type": "CRYPTO","secteur": "Crypto", "px_revient": None, "quantite": 0},
     # Barometres
     "^FCHI":   {"nom": "CAC 40",            "achat": None,  "vente": None,  "type": "INDEX",   "secteur": "Indice"},
     "GC=F":    {"nom": "Or",                "achat": None,  "vente": None,  "type": "MATIERES","secteur": "Refuge"},
@@ -523,7 +542,9 @@ PER_DATE_RELEVE = "06/08/2026"
 
 
 CORRELATIONS = {
-    "TTE.PA": "TotalEnergies suit le WTI a ~85% de correlation",
+    "TTE.PA": ("TotalEnergies suit le WTI — corrélation reelle ~50% (rendements journaliers, "
+               "verifie stable de 6 mois a 5 ans, cf. analyse_correlations.py ; l ancienne "
+               "estimation de 85% etait surestimee)"),
     "BNP.PA": "BNP monte quand BCE baisse les taux",
     "AIR.PA": "Airbus chute lors des guerres commerciales US/EU",
     "SAF.PA": "Safran monte avec les budgets defense europeens — position SOLDEE 01/07/2026 (quantite 0), en surveillance",
@@ -540,11 +561,10 @@ CORRELATIONS = {
     "RMS.PA": "Hermes = luxe ultra-premium, resilient en crise",
     "KER.PA": "Kering = Gucci/YSL, plus cyclique que LVMH et Hermes",
     "SOI.PA": "Soitec = semi-conducteurs SOI, beta eleve",
-    "STM.PA": "STMicro = semi europeens, automobile electrique et IoT",
+    "STMPA.PA": "STMicro = semi europeens, automobile electrique et IoT",
     "VIE.PA": "Veolia = eau et dechets, valeur defensive ESG",
     "ETL.PA": "Eutelsat = satellites LEO, concurrence frontale Starlink/SPCX, tres speculatif",
-    "MCPHY.PA":"McPhy = electrolyseurs hydrogene, tres volatile",
-    "AIL.PA": "Air Liquide = gaz industriels et hydrogene, dividende stable",
+    "AI.PA": "Air Liquide = gaz industriels et hydrogene, dividende stable",
     "SAN.PA": "Sanofi = pharma defensive, tres faible correlation avec defense/energie, dividende stable",
     "EL.PA":  "EssilorLuxottica = optique mondiale, defensive, exposition Asie",
     "BN.PA":  "Danone = conso de base, decorrelee du cycle industriel. Rappels laits infantiles et enquetes judiciaires ouvertes depuis 2026 = risque juridique non modelisable",
@@ -567,8 +587,8 @@ CORRELATIONS = {
     "PSP5.PA": "ETF small caps = beta plus eleve que les grandes capitalisations, brique offensive du socle indiciel",
     "BITC.AS": "CS Bitcoin ETP = correle Nasdaq 60-70%, signal risk-on/off. SPCX detient 18712 BTC en tresorerie → correlation SPCX/BTC",
     "CETH.AS": "CS Ethereum ETP = infra DeFi, staking inclus",
-    "SLNC.AS": "CS Solana ETP = beta tres eleve",
-    "CXRP.AS": "CS XRP ETP = paiements institutionnels",
+    "SLNC.SW": "CS Solana ETP = beta tres eleve",
+    "XRPL.SW": "CS XRP ETP = paiements institutionnels",
     "SPCX":   ("SpaceX cotee 12/06/2026 (IPO 135USD, +25% jour 1). POSITION : 1 titre @117.03EUR "
                "(vente partielle 12/06 @146.5EUR, +25.72EUR realises, allocation 2/7). "
                "Starlink = 69% du CA. xAI fusionne fev 2026. 18712 BTC en tresorerie. "
@@ -649,14 +669,13 @@ GEO_IMPACT = {
     "souverainete": {"AIR.PA": +15, "SAF.PA": +10, "HO.PA": +10},
     "industrie":    {"AIR.PA": +5, "SAF.PA": +5},
     "pelosi":       {"MSFT": +10, "NVDA": +10},
-    "semi-conducteur": {"SOI.PA": +20, "STM.PA": +20, "NVDA": +15},
-    "puce":            {"SOI.PA": +15, "STM.PA": +15, "NVDA": +10},
+    "semi-conducteur": {"SOI.PA": +20, "STMPA.PA": +20, "NVDA": +15},
+    "puce":            {"SOI.PA": +15, "STMPA.PA": +15, "NVDA": +10},
     "tsmc":            {"SOI.PA": +20, "NVDA": +10},
-    "automobile electrique": {"STM.PA": +20},
-    "hydrogene":       {"MCPHY.PA": +25, "AIL.PA": +15, "SU.PA": +10},
-    "electrolyse":     {"MCPHY.PA": +25},
-    "energie verte":   {"MCPHY.PA": +15, "AIL.PA": +10, "SU.PA": +10},
-    "nucleaire":       {"AIL.PA": +10, "SU.PA": +5},
+    "automobile electrique": {"STMPA.PA": +20},
+    "hydrogene":       {"AI.PA": +15, "SU.PA": +10},
+    "energie verte":   {"AI.PA": +10, "SU.PA": +10},
+    "nucleaire":       {"AI.PA": +10, "SU.PA": +5},
     # Spatial — SPCX desormais en portefeuille
     "satellite":       {"ETL.PA": +20, "AIR.PA": +5, "SPCX": +10},
     "starlink":        {"ETL.PA": -15, "SPCX": +20},
@@ -673,7 +692,7 @@ GEO_IMPACT = {
     "explosion fusee": {"SPCX": -25},
     "eau":             {"VIE.PA": +20},
     "secheresse":      {"VIE.PA": +25},
-    "environnement":   {"VIE.PA": +10, "MCPHY.PA": +5},
+    "environnement":   {"VIE.PA": +10},
     "esg":             {"VIE.PA": +10, "SU.PA": +5},
     # Crypto — correlation SPCX (18712 BTC en tresorerie)
     "bitcoin":         {"BITC.AS": +15, "SPCX": +5},
