@@ -389,6 +389,11 @@ SEUILS = {
     # delisted"). Seuils rafraichis sur MM200/plus haut 1 an.
     "AI.PA":   {"nom": "Air Liquide",       "achat": 155.00,"vente": 190.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
     "NVDA":    {"nom": "Nvidia",            "achat": 190.00,"vente": 250.00,"type": "WATCH-US","secteur": "IA/Puces"},
+    # v11.17 : TSMC ajoutee en CTO-US (demande explicite, annonce partenariat
+    # Sony), quantite 0 -> generera des alertes ACHAT automatiques comme
+    # Airbus/Safran, mais aucune position reelle. Seuils : MM200 (achat) /
+    # plus haut 1 an +5% (vente), meme methode que rafraichir_seuils.py.
+    "TSM":     {"nom": "TSMC",              "achat": 360.00,"vente": 500.00,"type": "CTO-US", "secteur": "Semi-conducteurs", "quantite": 0, "px_revient": 0},
     "GE":      {"nom": "GE Aerospace",      "achat": 320.00,"vente": 400.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 150.00,"vente": 220.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 330.00,"vente": 420.00,"type": "WATCH-US","secteur": "IA/Cloud"},
@@ -564,6 +569,7 @@ CORRELATIONS = {
     "RMS.PA": "Hermes = luxe ultra-premium, resilient en crise",
     "KER.PA": "Kering = Gucci/YSL, plus cyclique que LVMH et Hermes",
     "SOI.PA": "Soitec = semi-conducteurs SOI, beta eleve",
+    "TSM": "TSMC = premier fondeur mondial de semi-conducteurs (Taiwan), fabrique les puces Nvidia/AMD/Apple. Sensible aux tensions Taiwan/Chine",
     "STMPA.PA": "STMicro = semi europeens, automobile electrique et IoT",
     "VIE.PA": "Veolia = eau et dechets, valeur defensive ESG",
     "ETL.PA": "Eutelsat = satellites LEO, concurrence frontale Starlink/SPCX, tres speculatif",
@@ -672,9 +678,12 @@ GEO_IMPACT = {
     "souverainete": {"AIR.PA": +15, "SAF.PA": +10, "HO.PA": +10},
     "industrie":    {"AIR.PA": +5, "SAF.PA": +5},
     "pelosi":       {"MSFT": +10, "NVDA": +10},
-    "semi-conducteur": {"SOI.PA": +20, "STMPA.PA": +20, "NVDA": +15},
-    "puce":            {"SOI.PA": +15, "STMPA.PA": +15, "NVDA": +10},
-    "tsmc":            {"SOI.PA": +20, "NVDA": +10},
+    "semi-conducteur": {"SOI.PA": +20, "STMPA.PA": +20, "NVDA": +15, "TSM": +20},
+    "puce":            {"SOI.PA": +15, "STMPA.PA": +15, "NVDA": +10, "TSM": +15},
+    # v11.17 : "tsmc" boostait SOI.PA/NVDA mais pas TSM elle-meme —
+    # incoherent maintenant qu elle est suivie.
+    "tsmc":            {"SOI.PA": +20, "NVDA": +10, "TSM": +25},
+    "sony":            {"TSM": +15},
     "automobile electrique": {"STMPA.PA": +20},
     "hydrogene":       {"AI.PA": +15, "SU.PA": +10},
     "energie verte":   {"AI.PA": +10, "SU.PA": +10},
