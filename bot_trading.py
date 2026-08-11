@@ -1251,30 +1251,28 @@ def decouverte_societes_emergentes():
                   "Reponds UNIQUEMENT en JSON : "
                   '[{{"nom":"X","ticker":"X.PA","secteur":"X","raison":"catalyseur precis",'
                   '"risque_principal":"le principal argument contre","risque":"ELEVE"}}]')
-        # v11.17 : max_tokens 400 -> 2000. Avec le tool web_search, la reponse
-        # inclut le processus de recherche (tool_use/tool_result) avant le
-        # JSON final : 400 tokens laissait presque toujours le JSON tronque,
-        # d ou l echec systematique de l extraction plus bas.
+        # v11.17 (3e passe) : max_tokens 2000 -> 4000. Diagnostic confirme
+        # (texte recu sur Telegram) : reponse totalement VIDE, pas juste
+        # tronquee -> le budget s epuise pendant le cycle d appels
+        # web_search (requete/resultats) SANS jamais atteindre le bloc texte
+        # final. stop_reason ajoute au diagnostic pour trancher definitivement
+        # si ca se reproduit (max_tokens confirme vs autre cause).
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=2000,
+            max_tokens=4000,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
         texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
         match = re.search(r'\[.*\]', texte, re.DOTALL)
         if not match:
-            # v11.17 : avant, retour silencieux ici -> "Recherche en cours"
-            # ne se terminait jamais aux yeux de l utilisateur, sans indice
-            # sur ce qui s est passe. Echec persistant malgre max_tokens=2000
-            # -> le print() server-only (Railway, inaccessible depuis
-            # Telegram) ne suffit plus a diagnostiquer : le texte brut est
-            # desormais envoye sur Telegram directement (tronque a 300 car.).
-            print("[DECOUVERTE] pas de JSON trouve, texte brut (500 premiers car.) : "
-                  + texte[:500])
+            print("[DECOUVERTE] pas de JSON trouve, stop_reason={}, texte brut "
+                  "(500 premiers car.) : {}".format(
+                      getattr(msg, "stop_reason", "?"), texte[:500]))
             extrait = texte[:300].strip() if texte else "(reponse totalement vide)"
             send_telegram("🔭 Recherche terminee : reponse inattendue de Claude "
-                          "(pas de JSON exploitable). Texte recu :\n\n{}".format(extrait))
+                          "(pas de JSON exploitable, arret={}). Texte recu :\n\n{}".format(
+                              getattr(msg, "stop_reason", "?"), extrait))
             return
         societes = json.loads(match.group())
         m = load_memoire()
