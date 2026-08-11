@@ -1245,7 +1245,13 @@ def decouverte_societes_emergentes():
         )
         texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
         match = re.search(r'\[.*\]', texte, re.DOTALL)
-        if not match: return
+        if not match:
+            # v11.17 : avant, retour silencieux ici -> "Recherche en cours"
+            # ne se terminait jamais aux yeux de l utilisateur, sans indice
+            # sur ce qui s est passe. On informe desormais systematiquement.
+            send_telegram("🔭 Recherche terminee : reponse inattendue de Claude "
+                          "(pas de JSON exploitable). Reessaie plus tard.")
+            return
         societes = json.loads(match.group())
         m = load_memoire()
         decouvertes = m.get("societes_decouvertes", [])
@@ -1300,8 +1306,18 @@ def decouverte_societes_emergentes():
                           "signaux automatiques. Tape le nom de l une d elles pour sa fiche "
                           "chiffree.</i>")
             send_telegram("\n".join(lignes))
+        else:
+            # v11.17 : les 3 pistes proposees par Claude peuvent toutes echouer
+            # a la validation yfinance ou etre deja suivies -> avant, silence
+            # total. On confirme desormais que la recherche s est terminee.
+            send_telegram("🔭 Recherche terminee : aucune piste valide cette fois "
+                          "(deja suivies ou ticker non verifiable). Reessaie plus tard.")
     except Exception as e:
         print("[DECOUVERTE] " + str(e))
+        # v11.17 : avant, l erreur restait dans les logs Railway seuls —
+        # invisible depuis Telegram, d ou le "en cours" qui ne se terminait
+        # jamais aux yeux de l utilisateur.
+        send_telegram("🔭 Recherche interrompue par une erreur : {}".format(str(e)[:150]))
 
 # ============================================================
 # RECHERCHE WEB
