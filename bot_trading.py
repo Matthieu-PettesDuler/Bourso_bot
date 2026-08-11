@@ -1482,6 +1482,19 @@ def build_system_prompt():
             "Reponds en max 80 mots, chiffres precis, jamais de fraction d action.")
 
 
+def extraire_texte_claude(msg):
+    """Concatene les blocs texte d'une reponse Claude, en ignorant les autres
+    types de blocs (ThinkingBlock, ToolUseBlock...).
+    v11.17 : msg.content[0].text plantait avec claude-sonnet-5 des que le
+    premier bloc de la reponse etait un ThinkingBlock (pas de .text) —
+    AttributeError. Le except generique de analyse_claude() l attrapait deja
+    (visible via DERNIERE_ERREUR_CLAUDE), mais 3 autres appels Claude avaient
+    le meme .content[0].text fragile sans ce filet."""
+    if not msg.content:
+        return ""
+    return "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+
+
 def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
     if not ANTHROPIC_API_KEY: return "Cle manquante."
     global HISTORIQUE_CONVERSATION
@@ -1522,7 +1535,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
             system=build_system_prompt(),
             messages=HISTORIQUE_CONVERSATION
         )
-        rep = msg.content[0].text
+        rep = extraire_texte_claude(msg)
         HISTORIQUE_CONVERSATION.append({"role": "assistant", "content": rep})
         return rep
     except Exception as e:
@@ -3676,7 +3689,7 @@ REPONDS EN 200 MOTS MAX :
             model=CLAUDE_MODEL,
             max_tokens=450,
             messages=[{"role": "user", "content": prompt}])
-        resultat = msg.content[0].text.strip() if msg.content else ""
+        resultat = extraire_texte_claude(msg)
         if resultat and len(resultat) > 20:
             DERNIERE_ERREUR_CLAUDE = None
             return resultat
@@ -4043,11 +4056,15 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         for d in top_baisse:
             lignes_fb.append("🔴 {} {:.1f}%".format(SEUILS[d["ticker"]]["nom"], d["variation"]))
         if signaux_forts:
+            lignes_fb.append("[ACTION] signaux du moteur (deterministe, pas de l IA) :")
             for sig in signaux_forts[:2]:
                 lignes_fb.append("🎯 {} {} {}EUR Score:{}".format(
                     sig["type"], sig["nom"], sig["cours"], sig["score"]))
         else:
-            lignes_fb.append("✅ Pas de signal — portefeuille stable")
+            # v11.17 : "Pas de signal" seul, sans etiquette [ACTION], se
+            # confondait avec le reste de la fiche — pas clair que c etait
+            # LA reponse a la question "qu est-ce que je fais ?".
+            lignes_fb.append("[ACTION] ✅ Pas de signal — portefeuille stable, rien a faire")
         if DERNIERE_ERREUR_CLAUDE:
             lignes_fb.append("⚠️ Analyse IA indisponible : {} — tape 'analyse' pour reessayer".format(
                 DERNIERE_ERREUR_CLAUDE))
@@ -4288,7 +4305,7 @@ Reponds en JSON strict (sans markdown) :
             max_tokens=400,
             messages=[{"role": "user", "content": prompt_optim}]
         )
-        raw = resp.content[0].text.strip()
+        raw = extraire_texte_claude(resp)
 
         import re
         raw_clean = re.sub(r'```json|```', '', raw).strip()
@@ -4412,7 +4429,7 @@ def auto_optimisation_avec_patch():
                         taux_echec * 100,
                         " | ".join([r.get("valeur","?") + " " + r.get("action","?")
                                     for r in mauvaises[:3]]))}])
-            suggestion = msg.content[0].text
+            suggestion = extraire_texte_claude(msg)
             print("[AUTO-OPTIM] Suggestion patch : " + suggestion)
             send_telegram(
                 "🧠 <b>Auto-optimisation avancee</b>\n"
