@@ -1266,13 +1266,15 @@ def decouverte_societes_emergentes():
         if not match:
             # v11.17 : avant, retour silencieux ici -> "Recherche en cours"
             # ne se terminait jamais aux yeux de l utilisateur, sans indice
-            # sur ce qui s est passe. On informe desormais systematiquement,
-            # et on logue la reponse brute (tronquee) pour diagnostiquer si
-            # ca se reproduit malgre le passage a max_tokens=2000.
+            # sur ce qui s est passe. Echec persistant malgre max_tokens=2000
+            # -> le print() server-only (Railway, inaccessible depuis
+            # Telegram) ne suffit plus a diagnostiquer : le texte brut est
+            # desormais envoye sur Telegram directement (tronque a 300 car.).
             print("[DECOUVERTE] pas de JSON trouve, texte brut (500 premiers car.) : "
                   + texte[:500])
+            extrait = texte[:300].strip() if texte else "(reponse totalement vide)"
             send_telegram("🔭 Recherche terminee : reponse inattendue de Claude "
-                          "(pas de JSON exploitable). Reessaie plus tard.")
+                          "(pas de JSON exploitable). Texte recu :\n\n{}".format(extrait))
             return
         societes = json.loads(match.group())
         m = load_memoire()
