@@ -260,6 +260,9 @@ PARIS_TZ          = pytz.timezone("Europe/Paris")
 SEUIL_ALERTE      = 3.0
 CASH_DEFAULT      = 79.74    # Cash au 28/07/2026 (releve Boursobank) — modifiable via Telegram "cash X"
 CLAUDE_MODEL      = "claude-sonnet-5"
+# v11.17 : derniere erreur Claude (analyse_claude), pour affichage Telegram —
+# avant, seule tracee dans les logs Railway (print), invisible depuis le bot.
+DERNIERE_ERREUR_CLAUDE = None
 
 # ============================================================
 # PROFIL DE RISQUE v11.15 — Telegram : "risque offensif"
@@ -3653,6 +3656,7 @@ REPONDS EN 200 MOTS MAX :
         signaux=signaux_str
     )
 
+    global DERNIERE_ERREUR_CLAUDE
     try:
         attendre_rate_limit()
         msg = client.messages.create(
@@ -3661,12 +3665,15 @@ REPONDS EN 200 MOTS MAX :
             messages=[{"role": "user", "content": prompt}])
         resultat = msg.content[0].text.strip() if msg.content else ""
         if resultat and len(resultat) > 20:
+            DERNIERE_ERREUR_CLAUDE = None
             return resultat
         print("[CLAUDE] Reponse vide ou trop courte")
+        DERNIERE_ERREUR_CLAUDE = "reponse vide ou trop courte"
         return None
     except Exception as e:
         err = str(e)
-        print("[CLAUDE] Erreur : " + err[:100])
+        print("[CLAUDE] Erreur : " + err[:300])
+        DERNIERE_ERREUR_CLAUDE = err[:200]
         return None
 
 # ============================================================
@@ -4028,7 +4035,11 @@ def analyse_complete(moment="scan", force=False, session="EU"):
                     sig["type"], sig["nom"], sig["cours"], sig["score"]))
         else:
             lignes_fb.append("✅ Pas de signal — portefeuille stable")
-        lignes_fb.append("⚠️ Analyse IA indisponible — tape 'analyse' pour reessayer")
+        if DERNIERE_ERREUR_CLAUDE:
+            lignes_fb.append("⚠️ Analyse IA indisponible : {} — tape 'analyse' pour reessayer".format(
+                DERNIERE_ERREUR_CLAUDE))
+        else:
+            lignes_fb.append("⚠️ Analyse IA indisponible — tape 'analyse' pour reessayer")
         analyse = "\n".join(lignes_fb)
 
     geo_bloc = ""
