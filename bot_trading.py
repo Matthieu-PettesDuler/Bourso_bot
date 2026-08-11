@@ -338,7 +338,7 @@ SEUILS = {
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 72.00, "vente": 100.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
     "AIR.PA":  {"nom": "Airbus",            "achat": 145.00,"vente": 195.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
     "SAF.PA":  {"nom": "Safran",            "achat": 250.00,"vente": 340.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
-    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 14, "px_revient": 235.59},
+    "HO.PA":   {"nom": "Thales",            "achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Defense/IA",   "quantite": 14, "px_revient": 235.58},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 280.00,"vente": 380.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
                 "pea": {"quantite": 2, "px_revient": 295.03}},
     "SU.PA":   {"nom": "Schneider Electric","achat": 200.00,"vente": 310.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
@@ -363,7 +363,7 @@ SEUILS = {
     "SOI.PA":  {"nom": "Soitec",            "achat": 80.00, "vente": 160.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
     "STM.PA":  {"nom": "STMicroelectronics","achat": 15.00, "vente": 35.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
     "VIE.PA":  {"nom": "Veolia",            "achat": 25.00, "vente": 40.00, "type": "WATCH",   "secteur": "Eau/Environnement",
-                "pea": {"quantite": 10, "px_revient": 35.23}},
+                "pea": {"quantite": 10, "px_revient": 35.22}},
     "ETL.PA":  {"nom": "Eutelsat",          "achat": 3.00,  "vente": 8.00,  "type": "WATCH",   "secteur": "Spatial",
                 "pea": {"quantite": 50, "px_revient": 2.14}},
     "MCPHY.PA":{"nom": "McPhy Energy",      "achat": 5.00,  "vente": 15.00, "type": "WATCH",   "secteur": "Hydrogene"},
@@ -387,9 +387,9 @@ SEUILS = {
     # Bourso Monde / Europe : OPCVM FR001400RWK6 / RWJ8, absents de yfinance.
     # "valeur_eur" = valorisation figee du releve, mise a jour via "maj pea".
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World",
-                "pea": {"quantite": 32.1799, "px_revient": 113.98, "valeur_eur": 3907.92}},
+                "pea": {"quantite": 32.1799, "px_revient": 113.98, "valeur_eur": 3917.90}},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe",
-                "pea": {"quantite": 6.6600,  "px_revient": 122.55, "valeur_eur": 891.17}},
+                "pea": {"quantite": 6.6600,  "px_revient": 122.55, "valeur_eur": 895.50}},
     # PEA — briques de diversification (zones/segments absents)
     "PE500.PA":{"nom": "ETF S&amp;P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
