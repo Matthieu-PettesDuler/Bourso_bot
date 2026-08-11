@@ -202,6 +202,53 @@
       "secteur": "Automobile / Énergie",
       "type": "WATCH-US",
       "ajoute_le": "2026-08-08"
+    },
+    "DIM.PA": {
+      "nom": "Sartorius Stedim Biotech",
+      "secteur": "Santé / biotech (équipementier bioproduc",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-11"
+    },
+    "SCR.PA": {
+      "nom": "Scor SE",
+      "secteur": "Finance / assurance (réassurance)",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-11"
+    },
+    "RCO.PA": {
+      "nom": "Rémy Cointreau",
+      "secteur": "Consommation de base (spiritueux)",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-11"
     }
-  }
+  },
+  "societes_decouvertes": [
+    {
+      "date": "11/08/2026",
+      "ticker": "DIM.PA",
+      "nom": "Sartorius Stedim Biotech",
+      "secteur": "Santé / biotech (équipementier bioproduction)",
+      "raison": "Après une phase de déstockage post-Covid, les commandes reviennent à des niveaux plus normaux et les moteurs structurels du marché de la bioproduction restent intacts, avec un book-to-bill ratio above 1, indicating healthy demand ; les prochains trimestriels (T3/T4 2026) et la mise à jour de guidance devraient confirmer l'inflexion de croissance après une année de digestion des stocks clients.",
+      "risque_principal": "Le profil de croissance structurelle reste attractif mais les grandes banques (Goldman Sachs, JPMorgan, BNP Paribas Exane, Deutsche Bank) restent en majorité Neutre/Conserver, la valorisation restant tendue si la normalisation des stocks clients tarde.",
+      "risque": "MOYEN"
+    },
+    {
+      "date": "11/08/2026",
+      "ticker": "SCR.PA",
+      "nom": "Scor SE",
+      "secteur": "Finance / assurance (réassurance)",
+      "raison": "Alternative Solutions enregistre une croissance forte de 133 % sur les affaires renouvelées en juin-juillet 2026, tirant la diversification du portefeuille malgré un marché P&C plus concurrentiel ; le groupe a démontré un redressement financier significatif en 2025, confirmant sa résilience et sa capacité à délivrer une forte performance en capital et résultats selon Fitch — les résultats annuels 2026 et le futur plan stratégique post-Forward 2026 sont le prochain catalyseur.",
+      "risque_principal": "La concurrence est plus forte sur le marché de la réassurance P&C, après une année de profits élevés et d'augmentation de la capacité disponible, ce qui a tiré les prix vers le bas dans la plupart des lignes, ce qui pourrait peser sur la rentabilité technique future.",
+      "risque": "MOYEN"
+    },
+    {
+      "date": "11/08/2026",
+      "ticker": "RCO.PA",
+      "nom": "Rémy Cointreau",
+      "secteur": "Consommation de base (spiritueux)",
+      "raison": "Pour 2026-2027, le groupe table sur un retour à la croissance organique et une légère amélioration de sa marge, avec des premiers signaux encourageants : Rémy Martin regagne des parts de marché aux États-Unis comme en Chine, soutenu par le plan RC Forward, qui vise une hausse de 60 % du résultat opérationnel courant d'ici 2028-2029 — le catalyseur est la confirmation de ce retour à la croissance lors des prochaines publications trimestrielles.",
+      "risque_principal": "Le cognac, cœur de métier du groupe, reste pénalisé par le ralentissement de la consommation aux États-Unis et en Chine, la marge opérationnelle s'étant affaissée de 4,4 points, plombée par les droits de douane, un mix-prix défavorable et des coûts de production plus élevés.",
+      "risque": "ELEVE"
+    }
+  ]
 }
