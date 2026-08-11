@@ -3697,9 +3697,13 @@ REPONDS EN 200 MOTS MAX :
         # meme budget max_tokens que le texte visible : 450 ne laissait plus
         # assez de marge. Le prompt continue de demander 200 mots max, seul
         # le plafond dur est releve.
+        # v11.17 (2e passe) : 1200 restait insuffisant — [RISQUE] coupe en
+        # plein mot ("...a survei"). Le modele depasse deja largement la
+        # consigne "200 mots max" (~300+ mots visibles avant coupure), donc
+        # marge large plutot que re-ajuster au plus juste.
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=1200,
+            max_tokens=2500,
             messages=[{"role": "user", "content": prompt}])
         resultat = extraire_texte_claude(msg)
         if resultat and len(resultat) > 20:
