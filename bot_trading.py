@@ -1237,9 +1237,13 @@ def decouverte_societes_emergentes():
                   "Reponds UNIQUEMENT en JSON : "
                   '[{{"nom":"X","ticker":"X.PA","secteur":"X","raison":"catalyseur precis",'
                   '"risque_principal":"le principal argument contre","risque":"ELEVE"}}]')
+        # v11.17 : max_tokens 400 -> 2000. Avec le tool web_search, la reponse
+        # inclut le processus de recherche (tool_use/tool_result) avant le
+        # JSON final : 400 tokens laissait presque toujours le JSON tronque,
+        # d ou l echec systematique de l extraction plus bas.
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=400,
+            max_tokens=2000,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
@@ -1248,7 +1252,11 @@ def decouverte_societes_emergentes():
         if not match:
             # v11.17 : avant, retour silencieux ici -> "Recherche en cours"
             # ne se terminait jamais aux yeux de l utilisateur, sans indice
-            # sur ce qui s est passe. On informe desormais systematiquement.
+            # sur ce qui s est passe. On informe desormais systematiquement,
+            # et on logue la reponse brute (tronquee) pour diagnostiquer si
+            # ca se reproduit malgre le passage a max_tokens=2000.
+            print("[DECOUVERTE] pas de JSON trouve, texte brut (500 premiers car.) : "
+                  + texte[:500])
             send_telegram("🔭 Recherche terminee : reponse inattendue de Claude "
                           "(pas de JSON exploitable). Reessaie plus tard.")
             return
