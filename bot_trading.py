@@ -1333,6 +1333,19 @@ def decouverte_societes_emergentes():
 # ============================================================
 # RECHERCHE WEB
 # ============================================================
+def tronquer_mot(texte, longueur=75):
+    """Tronque a `longueur` caracteres sans couper un mot en plein milieu.
+    v11.17 : titre[:75] brut coupait les titres RSS n importe ou ("...le 1",
+    "...affiche pres de ") — recule jusqu au dernier espace et ajoute '…'."""
+    if len(texte) <= longueur:
+        return texte
+    coupe = texte[:longueur]
+    dernier_espace = coupe.rfind(" ")
+    if dernier_espace > 0:
+        coupe = coupe[:dernier_espace]
+    return coupe.rstrip(" ,.;:—-") + "…"
+
+
 def recherche_web_active():
     try:
         resultats = []
@@ -1362,7 +1375,7 @@ def recherche_web_active():
                             impact = "🟢" if any(w in tl for w in
                                 ["hausse","monte","bond","profit","gain","record",
                                  "accord","positif","croissance","commande"]) else "🔴"
-                            resultats.append("{} {}".format(impact, titre[:75]))
+                            resultats.append("{} {}".format(impact, tronquer_mot(titre)))
                             break
             except:
                 pass
@@ -1375,7 +1388,7 @@ def recherche_web_active():
                         tl = titre.lower()
                         for kw, label in themes_macro:
                             if kw in tl and titre not in resultats:
-                                resultats.append("🌍 {}".format(titre[:75]))
+                                resultats.append("🌍 {}".format(tronquer_mot(titre)))
                                 break
                         if len(resultats) >= 3: break
                 except:
