@@ -226,6 +226,12 @@
       "secteur": "Logiciels B2B (construction/AEC)",
       "type": "WATCH",
       "ajoute_le": "2026-08-12"
+    },
+    "6594.T": {
+      "nom": "Nidec Corporation",
+      "secteur": "Industriel",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-12"
     }
   },
   "societes_decouvertes": [
