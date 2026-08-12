@@ -2098,15 +2098,29 @@ def resoudre_valeur(texte):
     return None, None
 
 
-def fiche_valeur(texte):
+def fiche_valeur(texte, ticker_connu=None, entree_connue=None):
     """v11.15 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
-    Le bot calcule et cadre. Il ne decide pas."""
-    ticker, source = resoudre_valeur(texte)
-    if not ticker:
-        return None  # laisse la main au routage (ajout dynamique ou dialogue)
+    Le bot calcule et cadre. Il ne decide pas.
+
+    ticker_connu/entree_connue : v11.17 — a utiliser juste apres un ajout
+    dynamique reussi (rechercher_et_valider_ticker) pour eviter de repasser
+    par resoudre_valeur()/charger_valeurs_dynamiques(), qui relit la memoire
+    via load_memoire() (priorite GitHub). save_memoire() sans critique=True
+    differe le push GitHub jusqu a 1h -> la copie relue juste apres l ajout
+    peut encore etre l ancienne, sans la valeur qu on vient d ajouter.
+    Symptome observe : "Nidec" ajoutee avec succes, puis fiche introuvable
+    juste apres, tombait dans le dialogue libre."""
+    if ticker_connu:
+        ticker, source = ticker_connu, "dynamique"
+    else:
+        ticker, source = resoudre_valeur(texte)
+        if not ticker:
+            return None  # laisse la main au routage (ajout dynamique ou dialogue)
 
     d = calcul_indicateurs(ticker)
-    if source == "dynamique":
+    if entree_connue is not None:
+        s = entree_connue
+    elif source == "dynamique":
         s = charger_valeurs_dynamiques().get(ticker, {})
     else:
         s = SEUILS.get(ticker, {})
@@ -2818,6 +2832,9 @@ def check_messages_telegram():
             # connue, on renvoie la fiche ; sinon on laisse Claude repondre.
             if len(tl) <= 30 and not tl.endswith("?") and len(tl.split()) <= 3:
                 ticker_ar, _ = resoudre_valeur(text)
+                ticker_trouve, info_ou_motif = None, None  # v11.17 : reset explicite —
+                # ce code tourne dans la boucle Telegram, une variable non reinitialisee
+                # garderait la valeur du message precedent d une iteration a l autre.
                 if ticker_ar:
                     # Accuse de reception immediat : si le calcul prend quelques
                     # secondes, tu sais au moins que le message a bien ete recu.
@@ -2840,7 +2857,15 @@ def check_messages_telegram():
                             "verifie par un vrai appel marche.</i>".format(info_ou_motif))
 
                 try:
-                    fiche = fiche_valeur(text)
+                    # v11.17 : si on vient de trouver/ajouter le ticker a l instant,
+                    # on passe ticker/entree directement plutot que de rappeler
+                    # fiche_valeur(text) seul, qui relirait la memoire (potentiellement
+                    # pas encore a jour, cf. docstring de fiche_valeur) et echouerait
+                    # a retrouver ce qu on vient tout juste d ajouter.
+                    if ticker_trouve:
+                        fiche = fiche_valeur(text, ticker_connu=ticker_trouve, entree_connue=info_ou_motif)
+                    else:
+                        fiche = fiche_valeur(text)
                 except Exception as e:
                     print("[FICHE VALEUR] Erreur : " + str(e))
                     fiche = ("⚠️ Erreur en calculant la fiche de '{}'. "
