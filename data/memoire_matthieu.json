@@ -159,6 +159,14 @@
       "prix": 264.4,
       "rsi_signal": 84.6,
       "score_signal": 45
+    },
+    {
+      "date": "12/08/2026",
+      "action": "ACHAT",
+      "valeur": "TotalEnergies",
+      "prix": 75.62,
+      "rsi_signal": 54.5,
+      "score_signal": 53.3
     }
   ],
   "stats": {
