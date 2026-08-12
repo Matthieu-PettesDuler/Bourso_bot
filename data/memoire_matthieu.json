@@ -220,6 +220,12 @@
       "secteur": "Consommation de base (spiritueux)",
       "type": "WATCH",
       "ajoute_le": "2026-08-11"
+    },
+    "NEM.DE": {
+      "nom": "Nemetschek SE",
+      "secteur": "Logiciels B2B (construction/AEC)",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-12"
     }
   },
   "societes_decouvertes": [
@@ -249,6 +255,24 @@
       "raison": "Pour 2026-2027, le groupe table sur un retour à la croissance organique et une légère amélioration de sa marge, avec des premiers signaux encourageants : Rémy Martin regagne des parts de marché aux États-Unis comme en Chine, soutenu par le plan RC Forward, qui vise une hausse de 60 % du résultat opérationnel courant d'ici 2028-2029 — le catalyseur est la confirmation de ce retour à la croissance lors des prochaines publications trimestrielles.",
       "risque_principal": "Le cognac, cœur de métier du groupe, reste pénalisé par le ralentissement de la consommation aux États-Unis et en Chine, la marge opérationnelle s'étant affaissée de 4,4 points, plombée par les droits de douane, un mix-prix défavorable et des coûts de production plus élevés.",
       "risque": "ELEVE"
+    },
+    {
+      "date": "12/08/2026",
+      "ticker": "SCR.PA",
+      "nom": "SCOR SE",
+      "secteur": "Finance/Assurance (réassurance)",
+      "raison": "Le réassureur a relevé ses objectifs 2026 de résultat net et de ROE après un premier trimestre solide, confirmant l'impact positif de son recentrage stratégique et d'une discipline de souscription renforcée, avec un marché de la réassurance qui reste durci.",
+      "risque_principal": "Forte exposition résiduelle aux catastrophes naturelles majeures, à l'inflation des sinistres et aux évolutions réglementaires (Solvency II), qui pourraient inverser la dynamique de reprise en cas d'année de sinistralité élevée.",
+      "risque": "MODERE"
+    },
+    {
+      "date": "12/08/2026",
+      "ticker": "NEM.DE",
+      "nom": "Nemetschek SE",
+      "secteur": "Logiciels B2B (construction/AEC)",
+      "raison": "Guidance 2026 réaffirmée de 14-15% de croissance organique et 32-33% de marge EBITDA, portée par la transition vers l'abonnement (part récurrente proche de 95%) et l'intégration de l'acquisition HCSS qui renforce la présence en Amérique du Nord et dans les infrastructures.",
+      "risque_principal": "Titre très sensible au sentiment sur les valeurs SaaS/logicielles (repli de plus de 50% sur un an lors de craintes sur les dépenses cloud du secteur), avec un risque de compression de multiple si le cycle d'investissement IT ralentit davantage.",
+      "risque": "MODERE"
     }
   ]
 }
