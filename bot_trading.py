@@ -1533,9 +1533,13 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
             continue  # deja dans ctx ci-dessus
         dd = calcul_indicateurs(tk)
         if dd:
-            ce = round(dd["cours"]/EUR_USD_RATE, 2) if sc.get("type") == "WATCH-US" else dd["cours"]
-            ctx.append("{} {}EUR RSI:{} (watchlist, non detenu)".format(
-                sc.get("nom", tk), ce, dd.get("rsi", "?")))
+            # v11.17 : devise reelle (cf. devise_et_taux) plutot que supposer
+            # EUR pour toute valeur dynamique hors WATCH-US.
+            _dev, _tx = devise_et_taux(tk, sc)
+            ce = round(dd["cours"] / _tx, 2) if _tx else dd["cours"]
+            lbl = "EUR" if _tx else _dev
+            ctx.append("{} {}{} RSI:{} (watchlist, non detenu)".format(
+                sc.get("nom", tk), ce, lbl, dd.get("rsi", "?")))
         else:
             ctx.append("{} : cours indisponible — NE PAS EN INVENTER UN".format(sc.get("nom", tk)))
 
@@ -1719,8 +1723,11 @@ def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
     """Retourne un dict : action, confiance, pour[], contre[], executable, taille, prix."""
     s = obtenir_valeur(ticker)  # v11.15 : SEUILS ou valeur ajoutee dynamiquement
     rsi = d.get("rsi")
-    est_us = s.get("type") in ["CTO-US", "WATCH-US"]
-    cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
+    # v11.17 : devise_et_taux() gere aussi les valeurs dynamiques hors EUR/USD
+    # (ex: yen) — avant, tout ce qui n etait pas CTO-US/WATCH-US etait affiche
+    # tel quel en pretendant que c etait de l EUR.
+    _devise, _taux = devise_et_taux(ticker, s)
+    cours_eur = round(d["cours"] / _taux, 2) if _taux else d["cours"]
     env = enveloppe_de(ticker)
     cash = get_cash(env)
     nom_prof, prof = get_risk_profile()
@@ -2098,6 +2105,49 @@ def resoudre_valeur(texte):
     return None, None
 
 
+def devise_et_taux(ticker, s):
+    """v11.17 : conversion de devise pour l affichage d une fiche.
+
+    Le reste du fichier ne gere que 2 cas (EUR natif pour les .PA/.DE/.AS
+    de SEUILS, USD via EUR_USD_RATE pour CTO-US/WATCH-US) — correct pour
+    l univers curate, mais faux pour une valeur ajoutee DYNAMIQUEMENT hors
+    zone euro/US (ex: Nidec 6594.T, cotee en yen). Bug observe : la fiche
+    affichait "2734.0EUR" pour un cours en réalité en JPY (~14.87EUR reels,
+    facteur ~184x d ecart) — pas juste un mauvais libelle, un cours faux.
+
+    Retourne (devise, taux_vers_eur). Ne touche PAS aux tickers de SEUILS
+    (CTO/CTO-US/WATCH/WATCH-US existants) : comportement inchange pour eux.
+    """
+    if s.get("type") in ["CTO-US", "WATCH-US"]:
+        return "USD", EUR_USD_RATE
+    if ticker in SEUILS:
+        return "EUR", 1.0
+    # Valeur dynamique hors SEUILS : devise reelle inconnue a priori.
+    cle = "devise:" + ticker
+    cache = cache_get(cle, "marche")
+    if cache:
+        return cache
+    try:
+        info = yf.Ticker(ticker).fast_info
+        devise = (info.currency or "EUR").upper()
+    except Exception:
+        devise = "EUR"
+    if devise == "EUR":
+        resultat = ("EUR", 1.0)
+    else:
+        try:
+            # EUR{devise}=X (pas l inverse) pour garder la meme convention que
+            # EUR_USD_RATE partout ailleurs : taux = unites de devise pour 1 EUR,
+            # cours_eur = cours_natif / taux (division, jamais multiplication).
+            fx = yf.Ticker("EUR{}=X".format(devise)).history(period="5d")
+            taux = float(fx["Close"].iloc[-1]) if not fx.empty else None
+        except Exception:
+            taux = None
+        resultat = (devise, taux) if taux else (devise, None)
+    cache_set(cle, resultat)
+    return resultat
+
+
 def fiche_valeur(texte, ticker_connu=None, entree_connue=None):
     """v11.15 : 'danone' ou 'SAN.PA' sur Telegram -> score + positionnement.
     Le bot calcule et cadre. Il ne decide pas.
@@ -2154,16 +2204,20 @@ def fiche_valeur(texte, ticker_connu=None, entree_connue=None):
     sa = min(130, d.get("score_achat", 0) + max(0, geo_b) + max(0, cap_sc))
     sv = min(130, d.get("score_vente", 0) + max(0, -geo_b) + max(0, -cap_sc))
 
-    est_us = s.get("type") in ["CTO-US", "WATCH-US"]
-    cours_eur = round(d["cours"] / EUR_USD_RATE, 2) if est_us else d["cours"]
+    # v11.17 : devise_et_taux() gere aussi les valeurs dynamiques hors EUR/USD
+    # (bug source : Nidec, cotee en yen, affichait "2734.0EUR" — un cours
+    # faux d un facteur ~184x, pas juste un mauvais libelle).
+    _devise, _taux = devise_et_taux(ticker, s)
+    cours_eur = round(d["cours"] / _taux, 2) if _taux else d["cours"]
+    devise_label = "EUR" if _taux else _devise
     rsi = d.get("rsi")
     env = enveloppe_de(ticker)
     cash = get_cash(env)          # v11.15 : cash de la bonne enveloppe, jamais la somme
     nom_prof, prof = get_risk_profile()
 
     L = []
-    L.append("📇 <b>{}</b> ({}) — {}EUR {}{}%".format(
-        nom, ticker, cours_eur, "+" if d["variation"] >= 0 else "", d["variation"]))
+    L.append("📇 <b>{}</b> ({}) — {}{} {}{}%".format(
+        nom, ticker, cours_eur, devise_label, "+" if d["variation"] >= 0 else "", d["variation"]))
     L.append("<i>{}</i>".format(s.get("secteur", "?")))
     L.append("")
 
