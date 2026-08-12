@@ -288,5 +288,8 @@
       "risque_principal": "Titre très sensible au sentiment sur les valeurs SaaS/logicielles (repli de plus de 50% sur un an lors de craintes sur les dépenses cloud du secteur), avec un risque de compression de multiple si le cycle d'investissement IT ralentit davantage.",
       "risque": "MODERE"
     }
-  ]
+  ],
+  "valeurs_dynamiques_echecs": {
+    "opportunités": "2026-08-12"
+  }
 }
