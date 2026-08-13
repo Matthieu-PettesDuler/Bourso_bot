@@ -483,7 +483,14 @@ SEUILS = {
     "ALV.DE":  {"nom": "Allianz",           "achat": None, "vente": None, "type": "WATCH", "secteur": "Assurance",         "indice": "DAX"},
     "DTE.DE":  {"nom": "Deutsche Telekom",  "achat": None, "vente": None, "type": "WATCH", "secteur": "Telecom",           "indice": "DAX"},
     "MUV2.DE": {"nom": "Munich Re",         "achat": None, "vente": None, "type": "WATCH", "secteur": "Reassurance",       "indice": "DAX"},
-    "RHM.DE":  {"nom": "Rheinmetall",       "achat": None, "vente": None, "type": "WATCH", "secteur": "Defense",           "indice": "DAX"},
+    # v11.17 : seuils actives (achat/vente None -> reels), demande explicite.
+    # MM200 (achat) / plus haut 1 an +5% (vente), meme methode que le reste.
+    "RHM.DE":  {"nom": "Rheinmetall",       "achat": 1450.00, "vente": 2050.00, "type": "WATCH", "secteur": "Defense",     "indice": "DAX"},
+    # SAAB : ajoutee demande explicite. Cotee en couronnes suedoises (SEK) —
+    # seuils convertis en EUR (52.63EUR/68.96EUR bruts -> arrondis) pour
+    # rester comparables au cours_eur affiche partout ailleurs dans le bot
+    # (cf. devise_et_taux, generalisee suite a ce cas).
+    "SAAB-B.ST":{"nom": "Saab AB",          "achat": 52.50,   "vente": 69.00,   "type": "WATCH", "secteur": "Defense"},
     "MBG.DE":  {"nom": "Mercedes-Benz",     "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile",        "indice": "DAX"},
     "BMW.DE":  {"nom": "BMW",               "achat": None, "vente": None, "type": "WATCH", "secteur": "Automobile",        "indice": "DAX"},
     "IFX.DE":  {"nom": "Infineon",          "achat": None, "vente": None, "type": "WATCH", "secteur": "Semi-conducteurs",  "indice": "DAX"},
@@ -565,6 +572,8 @@ CORRELATIONS = {
     "SAF.PA": "Safran monte avec les budgets defense europeens — position SOLDEE 01/07/2026 (quantite 0), en surveillance",
     "HO.PA":  "Thales beneficie du rearmement europeen",
     "AM.PA":  "Dassault Aviation liee au Rafale et budget defense",
+    "RHM.DE": "Rheinmetall = premier groupe de defense allemand, munitions/vehicules blindes, tres expose au rearmement europeen",
+    "SAAB-B.ST": "Saab AB = defense suedoise (avions Gripen, systemes missiles), cotee en couronnes suedoises (SEK), meme theme rearmement europeen que Thales/Dassault/Rheinmetall",
     "SU.PA":  "Schneider profite de l'electrification et des data centers IA",
     "ORA.PA": "Orange resiste en crise, dividende stable — position SOLDEE 01/07/2026 (quantite 0), en surveillance",
     "CAP.PA": "Capgemini suit la demande IA/IT — position soldee (quantite 0), en surveillance",
@@ -623,12 +632,14 @@ GEO_IMPACT = {
     "iran":         {"TTE.PA": +20, "GC=F": +15, "GOLD.PA": +15, "AIR.PA": -5},
     "wti":          {"TTE.PA": +20},
     "oil":          {"TTE.PA": +20},
-    "rearmement":   {"SAF.PA": +25, "HO.PA": +25, "AM.PA": +25},
-    "defense":      {"SAF.PA": +20, "HO.PA": +20, "AM.PA": +20},
+    # v11.17 : RHM.DE/SAAB-B.ST ajoutees aux themes defense (memes poids que
+    # SAF.PA/HO.PA/AM.PA), demande explicite.
+    "rearmement":   {"SAF.PA": +25, "HO.PA": +25, "AM.PA": +25, "RHM.DE": +25, "SAAB-B.ST": +25},
+    "defense":      {"SAF.PA": +20, "HO.PA": +20, "AM.PA": +20, "RHM.DE": +20, "SAAB-B.ST": +20},
     "rafale":       {"AM.PA": +30, "SAF.PA": +15},
-    "otan":         {"SAF.PA": +15, "HO.PA": +15, "AM.PA": +15},
-    "ukraine":      {"SAF.PA": +20, "HO.PA": +20, "AM.PA": +20, "TTE.PA": +10},
-    "russie":       {"SAF.PA": +15, "HO.PA": +15, "AM.PA": +15, "TTE.PA": +10},
+    "otan":         {"SAF.PA": +15, "HO.PA": +15, "AM.PA": +15, "RHM.DE": +15, "SAAB-B.ST": +15},
+    "ukraine":      {"SAF.PA": +20, "HO.PA": +20, "AM.PA": +20, "TTE.PA": +10, "RHM.DE": +20, "SAAB-B.ST": +20},
+    "russie":       {"SAF.PA": +15, "HO.PA": +15, "AM.PA": +15, "TTE.PA": +10, "RHM.DE": +15, "SAAB-B.ST": +15},
     "guerre":       {"GC=F": +15, "GOLD.PA": +15, "SAF.PA": +10, "HO.PA": +10},
     "cessez":       {"SAF.PA": -10, "HO.PA": -10, "AM.PA": -10},
     "cessez-le-feu":{"SAF.PA": -15, "HO.PA": -15, "AM.PA": -15, "TTE.PA": -10, "GC=F": -15, "GOLD.PA": -15},
@@ -2115,20 +2126,22 @@ def devise_et_taux(ticker, s):
     """v11.17 : conversion de devise pour l affichage d une fiche.
 
     Le reste du fichier ne gere que 2 cas (EUR natif pour les .PA/.DE/.AS
-    de SEUILS, USD via EUR_USD_RATE pour CTO-US/WATCH-US) — correct pour
-    l univers curate, mais faux pour une valeur ajoutee DYNAMIQUEMENT hors
-    zone euro/US (ex: Nidec 6594.T, cotee en yen). Bug observe : la fiche
-    affichait "2734.0EUR" pour un cours en réalité en JPY (~14.87EUR reels,
-    facteur ~184x d ecart) — pas juste un mauvais libelle, un cours faux.
+    de SEUILS, USD via EUR_USD_RATE pour CTO-US/WATCH-US) — correct tant que
+    l univers curate ne contient QUE des tickers zone euro + US. Bug observe
+    sur Nidec (6594.T, yen) : "2734.0EUR" affiche pour un cours en realite
+    en JPY (~14.87EUR reels, facteur ~184x). Meme piege reconnu a temps sur
+    SAAB-B.ST (couronnes suedoises) avant de l ajouter a SEUILS — d ou la
+    v11.17b ci-dessous : ne plus supposer EUR pour les tickers SEUILS non
+    CTO-US/WATCH-US, mais detecter la devise reelle comme pour le dynamique.
+    Sans risque de regression : les .PA/.DE/.AS existants detecteront "EUR"
+    et obtiendront un taux de 1.0, identique au comportement d avant.
 
-    Retourne (devise, taux_vers_eur). Ne touche PAS aux tickers de SEUILS
-    (CTO/CTO-US/WATCH/WATCH-US existants) : comportement inchange pour eux.
+    Retourne (devise, taux_vers_eur).
     """
     if s.get("type") in ["CTO-US", "WATCH-US"]:
         return "USD", EUR_USD_RATE
-    if ticker in SEUILS:
-        return "EUR", 1.0
-    # Valeur dynamique hors SEUILS : devise reelle inconnue a priori.
+    # v11.17b : devise reelle detectee pour TOUT le reste (SEUILS et
+    # dynamique confondus), plus de raccourci "SEUILS => EUR" suppose.
     cle = "devise:" + ticker
     cache = cache_get(cle, "marche")
     if cache:
