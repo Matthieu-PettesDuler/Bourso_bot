@@ -3222,13 +3222,29 @@ def _calcul_indicateurs_brut(ticker):
         h = round(float(closes[-2]), 2) if len(closes) > 1 else c
         variation = round((c - h) / h * 100, 2)
 
+        # v11.17 : RSI recalcule avec le lissage de Wilder (methode originale,
+        # standard sur TradingView/Bloomberg/MetaTrader...) au lieu d une
+        # simple moyenne sur les 14 derniers jours. Ecart observe en pratique
+        # sur STMPA.PA : 48.3 (ancien calcul) vs 40.5 (TradingView, Wilder).
+        # La moyenne simple "oublie" tout gain/perte au-dela de 14 jours d un
+        # coup (effet de falaise) ; Wilder integre tout l historique avec un
+        # poids qui decroit progressivement, sans saut brutal. Historique
+        # etendu a 1y depuis v11.17 (MM200) -> largement assez de warm-up
+        # pour un vrai lissage Wilder plutot qu une simple moyenne.
         deltas    = [closes[i+1] - closes[i] for i in range(len(closes)-1)]
         gains     = [d if d > 0 else 0 for d in deltas]
         pertes    = [-d if d < 0 else 0 for d in deltas]
         rsi = None
         if deltas:
-            avg_gain  = sum(gains[-14:])  / 14 if len(gains)  >= 14 else sum(gains)  / max(len(gains),1)
-            avg_perte = sum(pertes[-14:]) / 14 if len(pertes) >= 14 else sum(pertes) / max(len(pertes),1)
+            if len(gains) >= 14:
+                avg_gain  = sum(gains[:14]) / 14
+                avg_perte = sum(pertes[:14]) / 14
+                for i in range(14, len(gains)):
+                    avg_gain  = (avg_gain * 13 + gains[i]) / 14
+                    avg_perte = (avg_perte * 13 + pertes[i]) / 14
+            else:
+                avg_gain  = sum(gains) / max(len(gains), 1)
+                avg_perte = sum(pertes) / max(len(pertes), 1)
             rsi = round(100 - (100 / (1 + avg_gain / avg_perte)) if avg_perte > 0 else 100, 1)
 
         if rsi is None: rsi_niveau = "INCONNU"
