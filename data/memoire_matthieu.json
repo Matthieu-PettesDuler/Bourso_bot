@@ -240,6 +240,18 @@
       "secteur": "Industriel",
       "type": "WATCH",
       "ajoute_le": "2026-08-12"
+    },
+    "UCB.BR": {
+      "nom": "UCB",
+      "secteur": "Santé/Biotech",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-13"
+    },
+    "G.MI": {
+      "nom": "Assicurazioni Generali",
+      "secteur": "Finance/Assurance",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-13"
     }
   },
   "societes_decouvertes": [
@@ -287,6 +299,33 @@
       "raison": "Guidance 2026 réaffirmée de 14-15% de croissance organique et 32-33% de marge EBITDA, portée par la transition vers l'abonnement (part récurrente proche de 95%) et l'intégration de l'acquisition HCSS qui renforce la présence en Amérique du Nord et dans les infrastructures.",
       "risque_principal": "Titre très sensible au sentiment sur les valeurs SaaS/logicielles (repli de plus de 50% sur un an lors de craintes sur les dépenses cloud du secteur), avec un risque de compression de multiple si le cycle d'investissement IT ralentit davantage.",
       "risque": "MODERE"
+    },
+    {
+      "date": "13/08/2026",
+      "ticker": "UCB.BR",
+      "nom": "UCB",
+      "secteur": "Santé/Biotech",
+      "raison": "Sur la lancée du bimekizumab (Bimzelx), UCB a relevé ses objectifs de pics de ventes à au moins 7 Md€ et attend les données de phase 3 chez l'adolescent (HS) au H1 2027, un catalyseur clinique et commercial dans l'horizon visé.",
+      "risque_principal": "La perte d'exclusivité de Briviact et la pression tarifaire américaine sur Bimzelx, combinées à la hausse de l'endettement liée aux acquisitions Neurona/Candid, pourraient peser sur la marge et le levier financier.",
+      "risque": "MOYEN"
+    },
+    {
+      "date": "13/08/2026",
+      "ticker": "G.MI",
+      "nom": "Assicurazioni Generali",
+      "secteur": "Finance/Assurance",
+      "raison": "Le plan stratégique « Lifetime Partner 27 : Driving Excellence » (croissance du BPA de 8-10% par an, hausse du dividende de +10% CAGR, rachat d'actions de 500 M€ en 2026) constitue un catalyseur récurrent de résultats et de retour aux actionnaires sur 6-18 mois.",
+      "risque_principal": "Le dossier de gouvernance italien (ingérence politique, saga Mediobanca/Banca Generali) et la sensibilité aux taux d'intérêt sur le portefeuille obligataire restent des risques structurels pour la valorisation.",
+      "risque": "MOYEN"
+    },
+    {
+      "date": "13/08/2026",
+      "ticker": "NEM.DE",
+      "nom": "Nemetschek",
+      "secteur": "Logiciels B2B",
+      "raison": "L'intégration de l'acquisition HCSS (clôturée le 1er juillet 2026, +600 pb de croissance attendue) et l'adoption supérieure aux attentes de la suite IA Bluebeam Max soutiennent une trajectoire de croissance à deux chiffres et un relèvement potentiel de la guidance sur 12-18 mois.",
+      "risque_principal": "La dilution de marge liée à l'intégration de HCSS (-150 pb en 2026) et la faiblesse persistante du segment Media, combinées à une valorisation encore élevée, exposent le titre à une correction en cas de déception sur la transition SaaS.",
+      "risque": "ELEVE"
     }
   ],
   "valeurs_dynamiques_echecs": {
