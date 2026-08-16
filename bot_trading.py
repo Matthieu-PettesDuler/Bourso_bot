@@ -2251,6 +2251,10 @@ def fiche_valeur(texte, ticker_connu=None, entree_connue=None):
         tech.append("Bollinger {}".format(str(d["bb_signal"]).lower()))
     if d.get("vol_signal"):
         tech.append("Volume {} x{:.1f}".format(d["vol_signal"].lower(), d.get("vol_ratio", 1)))
+    if d.get("vp_poc") is not None:
+        tech.append("POC {} (VAL {} / VAH {})".format(d["vp_poc"], d["vp_val"], d["vp_vah"]))
+    if d.get("cmf") is not None and d.get("cmf_signal") != "NEUTRE":
+        tech.append("Flux {} (CMF {:+.2f})".format(d["cmf_signal"].lower(), d["cmf"]))
     if d.get("tendance_1m") is not None:
         tech.append("1M {:+.1f}%".format(d["tendance_1m"]))
     L.append(" | ".join(tech) if tech else "Indicateurs incomplets")
@@ -3138,6 +3142,75 @@ def ema(closes, periode):
         ema_val = c * k + ema_val * (1 - k)
     return round(ema_val, 4)
 
+
+# v11.18 : Volume Profile approxime a partir des bougies quotidiennes
+# (High/Low/Volume). Pas de vrai tick-by-tick disponible via yfinance,
+# donc on repartit le volume de chaque bougie sur les tranches de prix
+# qu elle couvre (High-Low) plutot que sur la seule cloture -- c est la
+# methode standard quand on n a que de l OHLCV daily (Visible Range
+# Volume Profile). POC = tranche la plus echangee, VAH/VAL = bornes de
+# la zone qui concentre 70% du volume (convention standard).
+def compute_volume_profile(highs, lows, volumes, n_bins=20, lookback=60):
+    h, l, v = highs[-lookback:], lows[-lookback:], volumes[-lookback:]
+    if not h:
+        return None
+    prix_min, prix_max = min(l), max(h)
+    if prix_max <= prix_min:
+        return None
+    taille_bin = (prix_max - prix_min) / n_bins
+    bins = [0.0] * n_bins
+    for hi, lo, vol in zip(h, l, v):
+        idx_lo = min(int((lo - prix_min) / taille_bin), n_bins - 1)
+        idx_hi = min(int((hi - prix_min) / taille_bin), n_bins - 1)
+        span = idx_hi - idx_lo + 1
+        for idx in range(idx_lo, idx_hi + 1):
+            bins[idx] += vol / span
+
+    poc_idx = bins.index(max(bins))
+    poc = prix_min + (poc_idx + 0.5) * taille_bin
+
+    cible = sum(bins) * 0.70
+    lo_i = hi_i = poc_idx
+    acc = bins[poc_idx]
+    while acc < cible and (lo_i > 0 or hi_i < n_bins - 1):
+        gauche = bins[lo_i - 1] if lo_i > 0 else -1
+        droite = bins[hi_i + 1] if hi_i < n_bins - 1 else -1
+        if droite >= gauche:
+            hi_i += 1; acc += bins[hi_i]
+        else:
+            lo_i -= 1; acc += bins[lo_i]
+
+    return {
+        "poc": round(poc, 2),
+        "vah": round(prix_min + (hi_i + 1) * taille_bin, 2),
+        "val": round(prix_min + lo_i * taille_bin, 2),
+    }
+
+
+# v11.18 : proxy "order flow" -- PAS un vrai carnet d ordres (yfinance ne
+# fournit ni bid/ask ni tick data), mais le Chaikin Money Flow, l indicateur
+# standard qui approxime la pression acheteuse/vendeuse a partir de l OHLCV :
+# plus la cloture est proche du haut de la bougie (vs du bas), plus le volume
+# de la seance est compte comme "acheteur". CMF > 0 = accumulation nette sur
+# la periode, CMF < 0 = distribution nette.
+def compute_flux_pression(highs, lows, closes, volumes, lookback=20):
+    h, l, c, v = highs[-lookback:], lows[-lookback:], closes[-lookback:], volumes[-lookback:]
+    if len(h) < lookback:
+        return None
+    mfv_total, vol_total = 0.0, 0.0
+    for hi, lo, close, vol in zip(h, l, c, v):
+        rng = hi - lo
+        clv = ((close - lo) - (hi - close)) / rng if rng > 0 else 0
+        mfv_total += clv * vol
+        vol_total += vol
+    if vol_total <= 0:
+        return None
+    cmf = round(mfv_total / vol_total, 3)
+    if cmf > 0.1:      cmf_signal = "ACCUMULATION"
+    elif cmf < -0.1:   cmf_signal = "DISTRIBUTION"
+    else:               cmf_signal = "NEUTRE"
+    return {"cmf": cmf, "cmf_signal": cmf_signal}
+
 # ============================================================
 # GARDE-TEMPS REEL v11.15
 #
@@ -3298,6 +3371,16 @@ def _calcul_indicateurs_brut(ticker):
         vol_ratio = round(vol_rec5 / vol_moy20, 2) if vol_moy20 and vol_rec5 and vol_moy20 > 0 else 1.0
         vol_signal = "FORT" if vol_ratio > 1.5 else "FAIBLE" if vol_ratio < 0.7 else "NORMAL"
 
+        # v11.18 : Volume Profile + proxy order flow (CMF), cf. compute_volume_profile
+        # et compute_flux_pression ci-dessus. Necessitent High/Low, pas encore
+        # extraits plus haut (seuls Close et Volume l etaient).
+        highs = hist["High"].values.tolist()
+        lows  = hist["Low"].values.tolist()
+        highs = [x for x in highs if x is not None and x == x]
+        lows  = [x for x in lows  if x is not None and x == x]
+        vp  = compute_volume_profile(highs, lows, volumes) if len(highs) == len(volumes) else None
+        flux = compute_flux_pression(highs, lows, closes, volumes) if len(highs) == len(closes) == len(volumes) else None
+
         t1m = round((closes[-1] - closes[-22]) / closes[-22] * 100, 1) if len(closes) >= 22 else None
 
         # v11.16 : bloc "dynamique" (RSI + stochastique + momentum fusionnes
@@ -3382,6 +3465,25 @@ def _calcul_indicateurs_brut(ticker):
         elif mm50 and c < mm50:
             score_vente += 5
 
+        # v11.18 : Volume Profile -- bonus si le prix est sur la value area
+        # basse (VAL, zone de support a fort volume) ou haute (VAH, zone de
+        # resistance a fort volume), meme logique que le support/resistance
+        # MM200 deja utilise ailleurs.
+        if vp:
+            if c <= vp["val"]:
+                score_achat += 10; signaux_achat.append("Prix sur VAL {} (support volume)".format(vp["val"]))
+            elif c >= vp["vah"]:
+                score_vente += 10; signaux_vente.append("Prix sur VAH {} (resistance volume)".format(vp["vah"]))
+
+        # v11.18 : proxy order flow (CMF) -- confirme (ou pas) le signal
+        # plutot que de le declencher seul : pas de bonus si le CMF est
+        # neutre ou contredit le sens du mouvement du jour.
+        if flux:
+            if flux["cmf_signal"] == "ACCUMULATION" and variation >= 0:
+                score_achat += 10; signaux_achat.append("Flux acheteur (CMF {:+.2f})".format(flux["cmf"]))
+            elif flux["cmf_signal"] == "DISTRIBUTION" and variation <= 0:
+                score_vente += 10; signaux_vente.append("Flux vendeur (CMF {:+.2f})".format(flux["cmf"]))
+
         score_achat = min(100, score_achat)
         score_vente = min(100, score_vente)
 
@@ -3411,6 +3513,9 @@ def _calcul_indicateurs_brut(ticker):
             "macd_hist": macd_hist, "macd_croise": macd_croise,
             "bb_haut": bb_haut, "bb_bas": bb_bas, "bb_signal": bb_signal,
             "vol_ratio": vol_ratio, "vol_signal": vol_signal,
+            "vp_poc": vp["poc"] if vp else None, "vp_vah": vp["vah"] if vp else None,
+            "vp_val": vp["val"] if vp else None,
+            "cmf": flux["cmf"] if flux else None, "cmf_signal": flux["cmf_signal"] if flux else None,
             "tendance_1m": t1m, "signal_tech": signal,
             "score_achat": score_achat, "score_vente": score_vente,
             "signaux_achat": signaux_achat, "signaux_vente": signaux_vente,
