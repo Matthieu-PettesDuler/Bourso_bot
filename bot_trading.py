@@ -339,10 +339,15 @@ SEUILS = {
     "TTE.PA":  {"nom": "TotalEnergies",     "achat": 65.00, "vente": 85.00, "type": "CTO",     "secteur": "Energie",      "quantite": 33, "px_revient": 72.23,
                 "pea": {"quantite": 9, "px_revient": 67.49}},
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 85.00, "vente": 120.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
+    # v11.17 : Societe Generale ajoutee, position PEA reelle (releve Boursobank).
+    # Seuils MM200/plus haut 1 an +5%, meme methode que le reste.
+    "GLE.PA":  {"nom": "Societe Generale",  "achat": 70.00, "vente": 90.00, "type": "WATCH",   "secteur": "Banque",
+                "pea": {"quantite": 4, "px_revient": 83.04}},
     # Seuils rafraichis 10/08/2026 : achat = proche MM200 (support technique),
     # vente = au-dessus du plus haut 1 an. Les anciens seuils (145/195 et
     # 250/340) etaient sous le cours actuel depuis longtemps, donc muets.
-    "AIR.PA":  {"nom": "Airbus",            "achat": 190.00,"vente": 250.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0},
+    "AIR.PA":  {"nom": "Airbus",            "achat": 190.00,"vente": 250.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0,
+                "pea": {"quantite": 2, "px_revient": 215.29}},
     "SAF.PA":  {"nom": "Safran",            "achat": 310.00,"vente": 420.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
     # v11.17 : secteur harmonise "Defense/IA" -> "Defense" (etait "Defense/IA",
     # different du libelle "Defense" de AM.PA/SAF.PA). Le plafond sectoriel
@@ -351,7 +356,7 @@ SEUILS = {
     # que Thales et Dassault Aviation sont fortement correlees (+0.83 sur
     # rendements journaliers, stable de 6 mois a 5 ans, cf. analyse_correlations.py)
     # et sous-estimait la vraie concentration defense du portefeuille.
-    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.58},
+    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.59},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 300.00,"vente": 360.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
                 "pea": {"quantite": 2, "px_revient": 295.03}},
     "SU.PA":   {"nom": "Schneider Electric","achat": 250.00,"vente": 320.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
@@ -370,15 +375,17 @@ SEUILS = {
     "EN.PA":   {"nom": "Bouygues",          "achat": 46.00, "vente": 56.00, "type": "WATCH",   "secteur": "Construction/Telecom"},
     "EDEN.PA": {"nom": "Edenred",           "achat": 20.00, "vente": 31.00, "type": "WATCH",   "secteur": "Fintech"},
     "ADP.PA":  {"nom": "ADP Aeroports",     "achat": 110.00,"vente": 135.00,"type": "WATCH",   "secteur": "Infrastructure"},
-    "MC.PA":   {"nom": "LVMH",              "achat": 530.00,"vente": 670.00,"type": "WATCH",   "secteur": "Luxe"},
+    "MC.PA":   {"nom": "LVMH",              "achat": 530.00,"vente": 670.00,"type": "WATCH",   "secteur": "Luxe",
+                "pea": {"quantite": 2, "px_revient": 454.50}},
     "RMS.PA":  {"nom": "Hermes",            "achat": 1850.00,"vente":2350.00,"type": "WATCH",  "secteur": "Luxe"},
     "KER.PA":  {"nom": "Kering",            "achat": 270.00,"vente": 360.00,"type": "WATCH",   "secteur": "Luxe"},
     "SOI.PA":  {"nom": "Soitec",            "achat": 75.00, "vente": 200.00,"type": "WATCH",   "secteur": "Semi-conducteurs"},
     # v11.17 : STM.PA renvoyait "possibly delisted" chez yfinance — le bon
     # ticker est STMPA.PA. Seuils rafraichis sur MM200/plus haut 1 an.
-    "STMPA.PA":{"nom": "STMicroelectronics","achat": 37.00, "vente": 73.00, "type": "WATCH",   "secteur": "Semi-conducteurs"},
+    "STMPA.PA":{"nom": "STMicroelectronics","achat": 37.00, "vente": 73.00, "type": "WATCH",   "secteur": "Semi-conducteurs",
+                "pea": {"quantite": 4, "px_revient": 48.34}},
     "VIE.PA":  {"nom": "Veolia",            "achat": 32.00, "vente": 39.00, "type": "WATCH",   "secteur": "Eau/Environnement",
-                "pea": {"quantite": 10, "px_revient": 35.22}},
+                "pea": {"quantite": 10, "px_revient": 35.23}},
     "ETL.PA":  {"nom": "Eutelsat",          "achat": 2.50,  "vente": 4.50,  "type": "WATCH",   "secteur": "Spatial",
                 "pea": {"quantite": 50, "px_revient": 2.14}},
     # v11.17 : MCPHY.PA retiree — la societe a change de ticker (ALMCP, suite
@@ -390,7 +397,7 @@ SEUILS = {
     "AI.PA":   {"nom": "Air Liquide",       "achat": 155.00,"vente": 190.00,"type": "WATCH",   "secteur": "Hydrogene/Industrie"},
     # v11.17 : position reelle depuis 11/08/2026 (3 titres @ 191.43EUR PRU,
     # releve Boursobank) -> WATCH-US devient CTO-US, quantite/px_revient ajoutes.
-    "NVDA":    {"nom": "Nvidia",            "achat": 190.00,"vente": 250.00,"type": "CTO-US", "secteur": "IA/Puces", "quantite": 3, "px_revient": 191.43},
+    "NVDA":    {"nom": "Nvidia",            "achat": 190.00,"vente": 250.00,"type": "CTO-US", "secteur": "IA/Puces", "quantite": 3, "px_revient": 191.48},
     # v11.17 : TSMC ajoutee en CTO-US (demande explicite, annonce partenariat
     # Sony), quantite 0 -> generera des alertes ACHAT automatiques comme
     # Airbus/Safran, mais aucune position reelle. Seuils : MM200 (achat) /
@@ -414,9 +421,9 @@ SEUILS = {
     # Bourso Monde / Europe : OPCVM FR001400RWK6 / RWJ8, absents de yfinance.
     # "valeur_eur" = valorisation figee du releve, mise a jour via "maj pea".
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World",
-                "pea": {"quantite": 32.1799, "px_revient": 113.98, "valeur_eur": 3917.90}},
+                "pea": {"quantite": 36.284, "px_revient": 114.87, "valeur_eur": 4442.61}},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe",
-                "pea": {"quantite": 6.6600,  "px_revient": 122.55, "valeur_eur": 895.50}},
+                "pea": {"quantite": 7.403,  "px_revient": 123.75, "valeur_eur": 994.58}},
     # PEA — briques de diversification (zones/segments absents)
     "PE500.PA":{"nom": "ETF S&amp;P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
@@ -568,6 +575,7 @@ CORRELATIONS = {
                "verifie stable de 6 mois a 5 ans, cf. analyse_correlations.py ; l ancienne "
                "estimation de 85% etait surestimee)"),
     "BNP.PA": "BNP monte quand BCE baisse les taux",
+    "GLE.PA": "Societe Generale = meme sensibilite taux/BCE que BNP, banque de detail + banque d investissement",
     "AIR.PA": "Airbus chute lors des guerres commerciales US/EU",
     "SAF.PA": "Safran monte avec les budgets defense europeens — position SOLDEE 01/07/2026 (quantite 0), en surveillance",
     "HO.PA":  "Thales beneficie du rearmement europeen",
@@ -654,9 +662,9 @@ GEO_IMPACT = {
     "tarif":        {"AIR.PA": -15, "CAP.PA": -10},
     "douane":       {"AIR.PA": -10},
     "protectionnisme": {"AIR.PA": -15},
-    "bce":          {"BNP.PA": +15},
-    "taux":         {"BNP.PA": +10},
-    "fed":          {"MSFT": -5, "BNP.PA": +5},
+    "bce":          {"BNP.PA": +15, "GLE.PA": +15},
+    "taux":         {"BNP.PA": +10, "GLE.PA": +10},
+    "fed":          {"MSFT": -5, "BNP.PA": +5, "GLE.PA": +5},
     "inflation":    {"TTE.PA": +10, "GC=F": +15, "GOLD.PA": +15, "BNP.PA": -5},
     "recession":    {"ORA.PA": +10, "GC=F": +20, "GOLD.PA": +20, "CAP.PA": -15},
     "intelligence artificielle": {"MSFT": +15, "CAP.PA": +10, "SU.PA": +10, "NVDA": +20, "SPCX": +10},
