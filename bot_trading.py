@@ -1249,8 +1249,13 @@ def check_stop_loss(donnees_ok):
 # ============================================================
 # DECOUVERTE SOCIETES EMERGENTES
 # ============================================================
-def decouverte_societes_emergentes():
-    """Chaque lundi, Claude cherche 3 societes prometteuses (observation uniquement)."""
+def decouverte_societes_emergentes(manuel=False):
+    """Chaque lundi/jeudi, Claude cherche 3 societes prometteuses (observation uniquement).
+    v11.18 : silencieux par defaut (appel automatique programme) — ce ne sont
+    pas des signaux d achat/vente, supprime des notifications a la demande de
+    Matthieu. manuel=True (commande Telegram 'pistes' tapee explicitement)
+    restaure la reponse complete, puisque l utilisateur a alors demande le
+    resultat lui-meme."""
     if not ANTHROPIC_API_KEY: return
     print("[DECOUVERTE] Recherche societes emergentes...")
     try:
@@ -1294,10 +1299,11 @@ def decouverte_societes_emergentes():
             print("[DECOUVERTE] pas de JSON trouve, stop_reason={}, texte brut "
                   "(500 premiers car.) : {}".format(
                       getattr(msg, "stop_reason", "?"), texte[:500]))
-            extrait = texte[:300].strip() if texte else "(reponse totalement vide)"
-            send_telegram("🔭 Recherche terminee : reponse inattendue de Claude "
-                          "(pas de JSON exploitable, arret={}). Texte recu :\n\n{}".format(
-                              getattr(msg, "stop_reason", "?"), extrait))
+            if manuel:
+                extrait = texte[:300].strip() if texte else "(reponse totalement vide)"
+                send_telegram("🔭 Recherche terminee : reponse inattendue de Claude "
+                              "(pas de JSON exploitable, arret={}). Texte recu :\n\n{}".format(
+                                  getattr(msg, "stop_reason", "?"), extrait))
             return
         societes = json.loads(match.group())
         m = load_memoire()
@@ -1338,33 +1344,33 @@ def decouverte_societes_emergentes():
         m["societes_decouvertes"] = decouvertes[-20:]
         save_memoire(m)
         if nouvelles:
-            lignes = ["🔭 <b>Nouvelles pistes</b>", "━" * 24]
-            for n in nouvelles:
-                e = "🔴" if n["risque"]=="ELEVE" else "🟡" if n["risque"]=="MODERE" else "🟢"
+            print("[DECOUVERTE] {} nouvelle(s) piste(s) : {}".format(
+                len(nouvelles), ", ".join(n["nom"] for n in nouvelles)))
+            if manuel:
+                lignes = ["🔭 <b>Nouvelles pistes</b>", "━" * 24]
+                for n in nouvelles:
+                    e = "🔴" if n["risque"]=="ELEVE" else "🟡" if n["risque"]=="MODERE" else "🟢"
+                    lignes.append("")
+                    lignes.append("{} <b>{}</b> ({}) — {}".format(
+                        e, n["nom"], n["ticker"], n["secteur"]))
+                    lignes.append("✅ {}".format(n.get("raison", "?")))
+                    if n.get("risque_principal"):
+                        lignes.append("❌ {}".format(n["risque_principal"]))
                 lignes.append("")
-                lignes.append("{} <b>{}</b> ({}) — {}".format(
-                    e, n["nom"], n["ticker"], n["secteur"]))
-                lignes.append("✅ {}".format(n.get("raison", "?")))
-                if n.get("risque_principal"):
-                    lignes.append("❌ {}".format(n["risque_principal"]))
-            lignes.append("")
-            lignes.append("<i>Pistes a examiner, pas des recommandations : aucun seuil de "
-                          "strategie n est defini dessus et elles n entrent pas dans les "
-                          "signaux automatiques. Tape le nom de l une d elles pour sa fiche "
-                          "chiffree.</i>")
-            send_telegram("\n".join(lignes))
+                lignes.append("<i>Pistes a examiner, pas des recommandations : aucun seuil de "
+                              "strategie n est defini dessus et elles n entrent pas dans les "
+                              "signaux automatiques. Tape le nom de l une d elles pour sa fiche "
+                              "chiffree.</i>")
+                send_telegram("\n".join(lignes))
         else:
-            # v11.17 : les 3 pistes proposees par Claude peuvent toutes echouer
-            # a la validation yfinance ou etre deja suivies -> avant, silence
-            # total. On confirme desormais que la recherche s est terminee.
-            send_telegram("🔭 Recherche terminee : aucune piste valide cette fois "
-                          "(deja suivies ou ticker non verifiable). Reessaie plus tard.")
+            print("[DECOUVERTE] aucune piste valide cette fois")
+            if manuel:
+                send_telegram("🔭 Recherche terminee : aucune piste valide cette fois "
+                              "(deja suivies ou ticker non verifiable). Reessaie plus tard.")
     except Exception as e:
         print("[DECOUVERTE] " + str(e))
-        # v11.17 : avant, l erreur restait dans les logs Railway seuls —
-        # invisible depuis Telegram, d ou le "en cours" qui ne se terminait
-        # jamais aux yeux de l utilisateur.
-        send_telegram("🔭 Recherche interrompue par une erreur : {}".format(str(e)[:150]))
+        if manuel:
+            send_telegram("🔭 Recherche interrompue par une erreur : {}".format(str(e)[:150]))
 
 # ============================================================
 # RECHERCHE WEB
@@ -2608,7 +2614,7 @@ def check_messages_telegram():
             if ("emergent" in tl or "decouverte" in tl or "nouvelles societes" in tl
                     or tl in ["opportunites", "opportunite", "idees", "pistes", "scan marche"]):
                 send_telegram("🔎 Recherche de nouvelles pistes en cours (30-60s)...")
-                decouverte_societes_emergentes()
+                decouverte_societes_emergentes(manuel=True)
                 continue
 
             if "stop" in tl and "loss" in tl:
@@ -4211,8 +4217,12 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         watch_lines.append("<b>{}</b>{}\n[{}] {}\nA:{} V:{}".format(
             p["nom"], rsi_txt, p["barre"], p["verdict"], p["sa"], p["sv"]))
 
-    # Silence si rien (sauf force ou alerte SPCX ou position a regarder)
-    if not signaux_forts and not spcx_alertes and not positions_a_regarder and not force:
+    # v11.18 : silence sauf si une action est vraiment requise (achat/vente/
+    # RSI critique/IPO SPCX/stop-loss). "positions a regarder" (watch, pas de
+    # seuil defini) ne declenche plus de message a lui seul — demande explicite
+    # de Matthieu : ne recevoir que les messages ou une valeur devient
+    # verte->acheter ou rouge->vendre, pas les pistes a surveiller.
+    if not signaux_forts and not spcx_alertes and not stop_loss_alertes and not stop_loss_crypto and not force:
         print("[SCAN] Aucun signal — silence")
         return
 
@@ -4364,8 +4374,9 @@ def analyse_complete(moment="scan", force=False, session="EU"):
         if lignes_web:
             web_bloc = "\n🌐 <b>Actu :</b>\n" + "\n".join(lignes_web[:3]) + "\n"
 
-    emoji_msg = "🚨" if (signaux_forts or spcx_alertes or positions_a_regarder) and not force else "📊"
-    titre = "SIGNAL D'ACTION" if (signaux_forts or spcx_alertes or positions_a_regarder) and not force else "ANALYSE MANUELLE"
+    a_agir = signaux_forts or spcx_alertes or stop_loss_alertes or stop_loss_crypto
+    emoji_msg = "🚨" if a_agir and not force else "📊"
+    titre = "SIGNAL D'ACTION" if a_agir and not force else "ANALYSE MANUELLE"
     if session == "US":
         titre += " (session US)"
 
@@ -4625,30 +4636,16 @@ Reponds en JSON strict (sans markdown) :
         adj_str = "\n".join(["  • " + a for a in ajustements_appliques]) if ajustements_appliques \
                   else "  Aucun ajustement ({} decisions evaluees, minimum 8)".format(len(resultats_backtest))
 
-        msg = ("🔧 <b>Auto-optimisation hebdomadaire</b> — {}\n"
-               "――――――――――――――――――――――\n"
-               "📊 Backtest : <b>{} decisions</b> | Taux succes : <b>{}%</b>\n"
-               "✅ Bonnes : {} | ❌ Mauvaises : {}\n\n"
-               "🔍 <b>Diagnostic :</b>\n{}\n\n"
-               "⚙️ <b>Ajustements appliques :</b>\n{}\n\n"
-               "💡 <b>Regle apprise :</b>\n{}\n\n"
-               "🎯 <b>Score confiance portefeuille :</b> {}/100\n"
-               "――――――――――――――――――――――\n"
-               "<i>Optimisation automatique — aucune action requise</i>").format(
-            now.strftime("%d/%m/%Y"),
-            len(resultats_backtest), taux_succes,
-            nb_bons, nb_mauvais,
-            optim.get("diagnostic", "Analyse en cours..."),
-            adj_str,
-            optim.get("regle_apprise", ""),
-            optim.get("score_confiance_portefeuille", "?")
-        )
-        send_telegram(msg)
-        print("[AUTO-OPTIM] OK — {} ajustements".format(len(ajustements_appliques)))
+        # v11.18 : plus d envoi Telegram ici — rapport "aucune action requise"
+        # par definition, supprime a la demande de Matthieu (ne recevoir que
+        # les messages ou une action/achat/vente est reellement necessaire).
+        # Le detail reste dans les logs Railway pour diagnostic.
+        print("[AUTO-OPTIM] OK — {} decisions, {}% succes, {} ajustements : {}".format(
+            len(resultats_backtest), taux_succes, len(ajustements_appliques),
+            optim.get("regle_apprise", "")))
 
     except Exception as e:
         print("[AUTO-OPTIM] Erreur : " + str(e))
-        send_telegram("🔧 <b>Auto-optimisation</b> : erreur cette semaine — " + str(e)[:100])
 
 
 def auto_optimisation_avec_patch():
@@ -4684,11 +4681,10 @@ def auto_optimisation_avec_patch():
                         " | ".join([r.get("valeur","?") + " " + r.get("action","?")
                                     for r in mauvaises[:3]]))}])
             suggestion = extraire_texte_claude(msg)
-            print("[AUTO-OPTIM] Suggestion patch : " + suggestion)
-            send_telegram(
-                "🧠 <b>Auto-optimisation avancee</b>\n"
-                "Taux echec : {:.0f}%\n"
-                "Suggestion : {}".format(taux_echec * 100, suggestion))
+            # v11.18 : suggestion (pas une action) — plus envoyee sur Telegram,
+            # meme logique que le rapport hebdomadaire ci-dessus.
+            print("[AUTO-OPTIM] Suggestion patch (taux echec {:.0f}%) : {}".format(
+                taux_echec * 100, suggestion))
         except Exception as e:
             print("[AUTO-OPTIM PATCH] " + str(e))
 
