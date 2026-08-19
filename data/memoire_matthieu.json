@@ -175,6 +175,14 @@
       "prix": 16.25,
       "rsi_signal": 47.1,
       "score_signal": 49.0
+    },
+    {
+      "date": "19/08/2026",
+      "action": "ACHAT",
+      "valeur": "BNP Paribas",
+      "prix": 108.16,
+      "rsi_signal": 49.1,
+      "score_signal": 46.9
     }
   ],
   "stats": {
