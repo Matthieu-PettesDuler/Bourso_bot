@@ -183,6 +183,14 @@
       "prix": 108.16,
       "rsi_signal": 49.1,
       "score_signal": 46.9
+    },
+    {
+      "date": "19/08/2026",
+      "action": "ACHAT",
+      "valeur": "Nvidia",
+      "prix": 187.24,
+      "rsi_signal": 55.0,
+      "score_signal": 46.2
     }
   ],
   "stats": {
