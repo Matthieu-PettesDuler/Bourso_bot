@@ -191,6 +191,14 @@
       "prix": 187.24,
       "rsi_signal": 55.0,
       "score_signal": 46.2
+    },
+    {
+      "date": "19/08/2026",
+      "action": "ACHAT",
+      "valeur": "TSMC",
+      "prix": 354.71,
+      "rsi_signal": 47.5,
+      "score_signal": 47.7
     }
   ],
   "stats": {
