@@ -199,6 +199,14 @@
       "prix": 354.71,
       "rsi_signal": 47.5,
       "score_signal": 47.7
+    },
+    {
+      "date": "20/08/2026",
+      "action": "ACHAT",
+      "valeur": "Orange",
+      "prix": 16.15,
+      "rsi_signal": 45.4,
+      "score_signal": 48.9
     }
   ],
   "stats": {
