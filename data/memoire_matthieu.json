@@ -296,6 +296,12 @@
       "secteur": "Finance/Assurance",
       "type": "WATCH",
       "ajoute_le": "2026-08-13"
+    },
+    "AGS.BR": {
+      "nom": "Ageas",
+      "secteur": "Finance / Assurance",
+      "type": "WATCH",
+      "ajoute_le": "2026-08-20"
     }
   },
   "societes_decouvertes": [
@@ -370,6 +376,33 @@
       "raison": "L'intégration de l'acquisition HCSS (clôturée le 1er juillet 2026, +600 pb de croissance attendue) et l'adoption supérieure aux attentes de la suite IA Bluebeam Max soutiennent une trajectoire de croissance à deux chiffres et un relèvement potentiel de la guidance sur 12-18 mois.",
       "risque_principal": "La dilution de marge liée à l'intégration de HCSS (-150 pb en 2026) et la faiblesse persistante du segment Media, combinées à une valorisation encore élevée, exposent le titre à une correction en cas de déception sur la transition SaaS.",
       "risque": "ELEVE"
+    },
+    {
+      "date": "20/08/2026",
+      "ticker": "DIM.PA",
+      "nom": "Sartorius Stedim Biotech",
+      "secteur": "Santé / Biotech (équipements bioproduction)",
+      "raison": "<cite index=\"1-9,1-11\">Sur la base de la performance robuste du premier trimestre 2026 et de l'évolution générale du marché, le management confirme sa guidance pour l'exercice 2026 complet et anticipe que le second semestre surperformera le premier semestre en valeur absolue</cite>, ce qui constitue un catalyseur de normalisation progressive de la demande en équipements de bioproduction après la période de déstockage des clients.",
+      "risque_principal": "<cite index=\"2-2\">Le risque le plus important reste la faiblesse persistante des dépenses d'investissement en équipements et la dépendance à une reprise au second semestre du segment Lab Products & Services</cite>, dans un contexte où la valorisation reste jugée exigeante par le marché.",
+      "risque": "ELEVE"
+    },
+    {
+      "date": "20/08/2026",
+      "ticker": "AGS.BR",
+      "nom": "Ageas",
+      "secteur": "Finance / Assurance",
+      "raison": "<cite index=\"30-11,30-12\">Le groupe va acquérir la pleine propriété de sa filiale belge principale, ce qui renforce sa flexibilité stratégique, ses flux de trésorerie et son leadership de marché, dans une opération neutre en capital et solvabilité, soutenue par un partenariat renouvelé avec BNP Paribas</cite>, tandis que <cite index=\"30-4,30-5\">les résultats 2025 ont montré une croissance à deux chiffres des flux entrants, un résultat opérationnel net supérieur à 1,655 milliard d'euros et un ratio combiné de 92,5%, avec une guidance 2026 prévoyant une remontée de cash plus élevée</cite>, catalyseur d'une accélération des retours aux actionnaires (dividende/buybacks) sur l'horizon 12-18 mois.",
+      "risque_principal": "Malgré ces éléments positifs, <cite index=\"30-9\">certains analystes comme JPMorgan ont abaissé leur recommandation à Neutre avec un objectif de cours réduit</cite>, l'intégration simultanée de plusieurs acquisitions récentes (esure au UK, rachat de la filiale belge AG) faisant peser un risque d'exécution et de dilution temporaire de la génération de capital.",
+      "risque": "MOYEN"
+    },
+    {
+      "date": "20/08/2026",
+      "ticker": "NEM.DE",
+      "nom": "Nemetschek SE",
+      "secteur": "Logiciels B2B (BIM / construction & architecture)",
+      "raison": "<cite index=\"22-1,22-3,22-4\">Nemetschek a relevé ses perspectives 2026 après l'acquisition de HCSS, avec une croissance organique du chiffre d'affaires attendue entre 14% et 15% à taux de change constant et une marge d'EBITDA de 32% à 33%</cite>, tandis qu'un <cite index=\"24-2\">catalyseur supplémentaire réside dans le lancement en octobre 2026 de la première phase de test de la plateforme web basée sur l'IA « Design Intelligence » de sa filiale Graphisoft</cite>, destinée à automatiser les flux de travail des architectes et ingénieurs.",
+      "risque_principal": "<cite index=\"21-4\">Le management a indiqué que l'acquisition de HCSS devrait réduire la marge d'EBITDA publiée d'environ 150 points de base par rapport au point médian de la guidance organique, incluant les coûts d'acquisition et d'intégration</cite>, dans un contexte où <cite index=\"19-2\">l'activité reste liée aux décisions d'investissement des architectes, ingénieurs et constructeurs, facteurs pouvant introduire de la cyclicité en cas de ralentissement économique</cite>.",
+      "risque": "MOYEN"
     }
   ],
   "valeurs_dynamiques_echecs": {
