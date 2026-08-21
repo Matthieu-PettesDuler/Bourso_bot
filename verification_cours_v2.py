@@ -218,10 +218,14 @@ def _charger_google_sheet():
             if len(ligne) < 3:
                 continue
             ticker_yf, prix_brut = ligne[0].strip(), ligne[2].strip()
+            # Locale FR du Sheet -> virgule decimale ("77,52") au lieu du
+            # point attendu par float(). Sans cette conversion, seuls les
+            # nombres entiers sans decimale (ex. "298") passaient, tout le
+            # reste (la plupart des cours) echouait silencieusement.
             try:
-                table[ticker_yf.upper()] = float(prix_brut)
+                table[ticker_yf.upper()] = float(prix_brut.replace(",", "."))
             except ValueError:
-                continue  # ligne d en-tete ou cellule #N/A - ignoree silencieusement
+                continue  # ligne d en-tete ou cellule #N/A/#ERROR! - ignoree silencieusement
         _sheet_cache["data"] = table
         _sheet_cache["expire"] = now + SHEET_CACHE_TTL
         return table
