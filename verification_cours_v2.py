@@ -10,6 +10,9 @@ SOURCES UTILISEES
   2. Stooq      — independante, CSV libre, AUCUNE cle requise
   3. Twelve Data— independante, cle gratuite (800 requetes/jour)
   4. Financial Modeling Prep — independante, cle gratuite (250 requetes/jour)
+  5. Google Sheets (GOOGLEFINANCE) — independante, AUCUNE cle requise, mais
+     necessite un Google Sheet public en lecture (variable GOOGLE_SHEET_ID),
+     cf. cours_google_sheets() plus bas.
 
 SOURCES VOLONTAIREMENT EXCLUES
 ------------------------------
@@ -180,6 +183,58 @@ def cours_fmp(ticker_yf):
 
 
 # ===========================================================================
+# SOURCE 4 : GOOGLE SHEETS / GOOGLEFINANCE (sans cle, sans credential)
+# ===========================================================================
+# Necessite un Google Sheet PUBLIC en lecture ("Quiconque a le lien - Lecteur")
+# avec une formule =GOOGLEFINANCE(ticker,"price") par valeur suivie. Aucune
+# authentification requise : lecture via l export CSV public du Sheet, meme
+# principe que Stooq. Colonne A = ticker yfinance, colonne C = prix calcule
+# par GOOGLEFINANCE.
+GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
+GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "Cours")
+SHEET_CACHE_TTL = 120  # secondes - un seul appel CSV rafraichit tous les tickers d un coup
+
+_sheet_cache = {"data": {}, "expire": 0.0}
+
+
+def _charger_google_sheet():
+    """Recupere tout le Sheet en un seul appel CSV, mis en cache. Le cache
+    evite de re-telecharger tout le Sheet a chaque ticker verifie."""
+    if not GOOGLE_SHEET_ID:
+        return {}
+    now = time.time()
+    if _sheet_cache["data"] and now < _sheet_cache["expire"]:
+        return _sheet_cache["data"]
+    try:
+        url = "https://docs.google.com/spreadsheets/d/{}/gviz/tq".format(GOOGLE_SHEET_ID)
+        r = requests.get(url, params={"tqx": "out:csv", "sheet": GOOGLE_SHEET_NAME},
+                          timeout=TIMEOUT)
+        if r.status_code != 200:
+            print("[GOOGLE_SHEET] HTTP {} — Sheet bien partage en 'Quiconque a le lien' ?".format(
+                r.status_code))
+            return {}
+        table = {}
+        for ligne in csv.reader(io.StringIO(r.text)):
+            if len(ligne) < 3:
+                continue
+            ticker_yf, prix_brut = ligne[0].strip(), ligne[2].strip()
+            try:
+                table[ticker_yf.upper()] = float(prix_brut)
+            except ValueError:
+                continue  # ligne d en-tete ou cellule #N/A - ignoree silencieusement
+        _sheet_cache["data"] = table
+        _sheet_cache["expire"] = now + SHEET_CACHE_TTL
+        return table
+    except Exception as e:
+        print("[GOOGLE_SHEET] {}".format(e))
+        return {}
+
+
+def cours_google_sheets(ticker_yf):
+    return _charger_google_sheet().get(ticker_yf.upper())
+
+
+# ===========================================================================
 # CONSENSUS
 # ===========================================================================
 
@@ -187,10 +242,11 @@ SOURCES = [
     ("twelvedata", cours_twelvedata),
     ("fmp", cours_fmp),
     ("stooq", cours_stooq),
+    ("google_sheets", cours_google_sheets),
 ]
 
 
-def verifier_cours(ticker, cours_yf, max_sources=3):
+def verifier_cours(ticker, cours_yf, max_sources=4):
     """Confronte le cours yfinance aux sources independantes disponibles.
 
     Args:
