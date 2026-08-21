@@ -347,7 +347,7 @@ SEUILS = {
     # vente = au-dessus du plus haut 1 an. Les anciens seuils (145/195 et
     # 250/340) etaient sous le cours actuel depuis longtemps, donc muets.
     "AIR.PA":  {"nom": "Airbus",            "achat": 190.00,"vente": 250.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0,
-                "pea": {"quantite": 2, "px_revient": 215.29}},
+                "pea": {"quantite": 2, "px_revient": 215.30}},
     "SAF.PA":  {"nom": "Safran",            "achat": 310.00,"vente": 420.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
     # v11.17 : secteur harmonise "Defense/IA" -> "Defense" (etait "Defense/IA",
     # different du libelle "Defense" de AM.PA/SAF.PA). Le plafond sectoriel
@@ -356,7 +356,7 @@ SEUILS = {
     # que Thales et Dassault Aviation sont fortement correlees (+0.83 sur
     # rendements journaliers, stable de 6 mois a 5 ans, cf. analyse_correlations.py)
     # et sous-estimait la vraie concentration defense du portefeuille.
-    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.59},
+    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.58},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 300.00,"vente": 360.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
                 "pea": {"quantite": 2, "px_revient": 295.03}},
     "SU.PA":   {"nom": "Schneider Electric","achat": 250.00,"vente": 320.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
@@ -383,9 +383,9 @@ SEUILS = {
     # v11.17 : STM.PA renvoyait "possibly delisted" chez yfinance — le bon
     # ticker est STMPA.PA. Seuils rafraichis sur MM200/plus haut 1 an.
     "STMPA.PA":{"nom": "STMicroelectronics","achat": 37.00, "vente": 73.00, "type": "WATCH",   "secteur": "Semi-conducteurs",
-                "pea": {"quantite": 4, "px_revient": 48.34}},
+                "pea": {"quantite": 10, "px_revient": 45.31}},
     "VIE.PA":  {"nom": "Veolia",            "achat": 32.00, "vente": 39.00, "type": "WATCH",   "secteur": "Eau/Environnement",
-                "pea": {"quantite": 10, "px_revient": 35.23}},
+                "pea": {"quantite": 10, "px_revient": 35.22}},
     "ETL.PA":  {"nom": "Eutelsat",          "achat": 2.50,  "vente": 4.50,  "type": "WATCH",   "secteur": "Spatial",
                 "pea": {"quantite": 50, "px_revient": 2.14}},
     # v11.17 : MCPHY.PA retiree — la societe a change de ticker (ALMCP, suite
@@ -402,12 +402,23 @@ SEUILS = {
     # Sony), quantite 0 -> generera des alertes ACHAT automatiques comme
     # Airbus/Safran, mais aucune position reelle. Seuils : MM200 (achat) /
     # plus haut 1 an +5% (vente), meme methode que rafraichir_seuils.py.
-    "TSM":     {"nom": "TSMC",              "achat": 360.00,"vente": 500.00,"type": "CTO-US", "secteur": "Semi-conducteurs", "quantite": 0, "px_revient": 0},
+    # v11.18 : position reelle depuis releve Boursobank 20/08/2026 (1 titre @360.23EUR PRU).
+    "TSM":     {"nom": "TSMC",              "achat": 360.00,"vente": 500.00,"type": "CTO-US", "secteur": "Semi-conducteurs", "quantite": 1, "px_revient": 360.23},
     "GE":      {"nom": "GE Aerospace",      "achat": 320.00,"vente": 400.00,"type": "WATCH-US","secteur": "Defense"},
     "PLTR":    {"nom": "Palantir",          "achat": 150.00,"vente": 220.00,"type": "WATCH-US","secteur": "Defense/IA"},
     "GOOGL":   {"nom": "Alphabet/Google",   "achat": 330.00,"vente": 420.00,"type": "WATCH-US","secteur": "IA/Cloud"},
+    # v11.18 : 3 nouvelles positions reelles decouvertes sur le releve Boursobank
+    # ORD (CTO) du 20/08/2026, absentes jusqu ici du suivi. Seuils calcules via
+    # rafraichir_seuils.py (MM200 = achat, plus haut 1 an +5% = vente), meme
+    # methode que les autres ajouts recents.
+    "MRVL":    {"nom": "Marvell Technology","achat": 140.00,"vente": 330.00,"type": "CTO-US", "secteur": "Semi-conducteurs", "quantite": 1, "px_revient": 212.94},
+    "BETA":    {"nom": "Beta Technologies", "achat": 22.00, "vente": 39.00, "type": "CTO-US", "secteur": "Mobilite aerienne electrique", "quantite": 10, "px_revient": 22.35},
+    # Alphabet Classe C (GOOG, sans droit de vote) — position reelle, distincte
+    # de GOOGL (Classe A, deja suivie en WATCH-US sans position).
+    "GOOG":    {"nom": "Alphabet Classe C", "achat": 330.00,"vente": 420.00,"type": "CTO-US", "secteur": "IA/Cloud", "quantite": 3, "px_revient": 299.12},
     # ---- DIVERSIFICATION v11.15 : secteurs totalement absents du portefeuille ----
-    "SAN.PA":  {"nom": "Sanofi",            "achat": 75.00, "vente": 90.00, "type": "WATCH",   "secteur": "Sante"},
+    "SAN.PA":  {"nom": "Sanofi",            "achat": 75.00, "vente": 90.00, "type": "WATCH",   "secteur": "Sante",
+                "pea": {"quantite": 2, "px_revient": 76.78}},
     "EL.PA":   {"nom": "EssilorLuxottica",  "achat": 220.00,"vente": 330.00,"type": "WATCH",   "secteur": "Sante/Optique"},
     "BN.PA":   {"nom": "Danone",            "achat": 70.00, "vente": 80.00, "type": "WATCH",   "secteur": "Conso de base"},
     "OR.PA":   {"nom": "L Oreal",           "achat": 370.00,"vente": 420.00,"type": "WATCH",   "secteur": "Conso de base"},
