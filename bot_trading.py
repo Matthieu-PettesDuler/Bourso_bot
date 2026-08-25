@@ -356,7 +356,7 @@ SEUILS = {
     # que Thales et Dassault Aviation sont fortement correlees (+0.83 sur
     # rendements journaliers, stable de 6 mois a 5 ans, cf. analyse_correlations.py)
     # et sous-estimait la vraie concentration defense du portefeuille.
-    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.58},
+    "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.59},
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 300.00,"vente": 360.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
                 "pea": {"quantite": 2, "px_revient": 295.03}},
     "SU.PA":   {"nom": "Schneider Electric","achat": 250.00,"vente": 320.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
@@ -387,7 +387,7 @@ SEUILS = {
     "VIE.PA":  {"nom": "Veolia",            "achat": 32.00, "vente": 39.00, "type": "WATCH",   "secteur": "Eau/Environnement",
                 "pea": {"quantite": 10, "px_revient": 35.22}},
     "ETL.PA":  {"nom": "Eutelsat",          "achat": 2.50,  "vente": 4.50,  "type": "WATCH",   "secteur": "Spatial",
-                "pea": {"quantite": 50, "px_revient": 2.14}},
+                "pea": {"quantite": 150, "px_revient": 1.99}},
     # v11.17 : MCPHY.PA retiree — la societe a change de ticker (ALMCP, suite
     # au passage Euronext Paris -> Euronext Growth Paris en 08/2024) et
     # yfinance ne couvre pas le nouveau ticker (verifie, plusieurs variantes
