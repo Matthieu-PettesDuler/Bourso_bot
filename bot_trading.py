@@ -341,13 +341,15 @@ SEUILS = {
     "BNP.PA":  {"nom": "BNP Paribas",       "achat": 85.00, "vente": 120.00,"type": "CTO",     "secteur": "Banque",       "quantite": 0,  "px_revient": 0},
     # v11.17 : Societe Generale ajoutee, position PEA reelle (releve Boursobank).
     # Seuils MM200/plus haut 1 an +5%, meme methode que le reste.
+    # v11.18 : renfort reel 01/09/2026 (releve Boursobank), 4->20 titres.
     "GLE.PA":  {"nom": "Societe Generale",  "achat": 70.00, "vente": 90.00, "type": "WATCH",   "secteur": "Banque",
-                "pea": {"quantite": 4, "px_revient": 83.04}},
+                "pea": {"quantite": 20, "px_revient": 76.43}},
     # Seuils rafraichis 10/08/2026 : achat = proche MM200 (support technique),
     # vente = au-dessus du plus haut 1 an. Les anciens seuils (145/195 et
     # 250/340) etaient sous le cours actuel depuis longtemps, donc muets.
+    # v11.18 : renfort reel PEA 01/09/2026, 2->5 titres.
     "AIR.PA":  {"nom": "Airbus",            "achat": 190.00,"vente": 250.00,"type": "CTO",     "secteur": "Aerospatiale", "quantite": 0,  "px_revient": 0,
-                "pea": {"quantite": 2, "px_revient": 215.30}},
+                "pea": {"quantite": 5, "px_revient": 203.28}},
     "SAF.PA":  {"nom": "Safran",            "achat": 310.00,"vente": 420.00,"type": "CTO",     "secteur": "Defense",      "quantite": 0,  "px_revient": 0},   # SOLDEE 01/07/2026
     # v11.17 : secteur harmonise "Defense/IA" -> "Defense" (etait "Defense/IA",
     # different du libelle "Defense" de AM.PA/SAF.PA). Le plafond sectoriel
@@ -357,8 +359,9 @@ SEUILS = {
     # rendements journaliers, stable de 6 mois a 5 ans, cf. analyse_correlations.py)
     # et sous-estimait la vraie concentration defense du portefeuille.
     "HO.PA":   {"nom": "Thales",            "achat": 240.00,"vente": 280.00,"type": "CTO",     "secteur": "Defense",      "quantite": 14, "px_revient": 235.59},
+    # v11.18 : renfort reel PEA 01/09/2026, 2->4 titres.
     "AM.PA":   {"nom": "Dassault Aviation", "achat": 300.00,"vente": 360.00,"type": "CTO",     "secteur": "Defense",      "quantite": 6,  "px_revient": 304.56,
-                "pea": {"quantite": 2, "px_revient": 295.03}},
+                "pea": {"quantite": 4, "px_revient": 288.37}},
     "SU.PA":   {"nom": "Schneider Electric","achat": 250.00,"vente": 320.00,"type": "CTO",     "secteur": "Energie/IA",   "quantite": 3,  "px_revient": 268.87},
     "MSFT":    {"nom": "Microsoft",         "achat": 430.00,"vente": 570.00,"type": "CTO-US",  "secteur": "IA/Cloud",     "quantite": 2,  "px_revient": 330.82},
     # SPCX — POSITION REELLE depuis IPO 12/06/2026
@@ -433,9 +436,9 @@ SEUILS = {
     # Bourso Monde / Europe : OPCVM FR001400RWK6 / RWJ8, absents de yfinance.
     # "valeur_eur" = valorisation figee du releve, mise a jour via "maj pea".
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World",
-                "pea": {"quantite": 36.284, "px_revient": 114.87, "valeur_eur": 4442.61}},
+                "pea": {"quantite": 36.284, "px_revient": 114.87, "valeur_eur": 4401.97}},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe",
-                "pea": {"quantite": 7.403,  "px_revient": 123.75, "valeur_eur": 994.58}},
+                "pea": {"quantite": 7.403,  "px_revient": 123.75, "valeur_eur": 988.81}},
     # PEA — briques de diversification (zones/segments absents)
     "PE500.PA":{"nom": "ETF S&amp;P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
