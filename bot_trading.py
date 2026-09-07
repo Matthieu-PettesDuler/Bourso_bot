@@ -1305,9 +1305,13 @@ def decouverte_societes_emergentes(manuel=False):
         msg = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=4000,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            # v11.18 : web_search_20250305 -> _20260209 (filtrage dynamique des
+            # resultats, moins de texte brut de page ingere = moins d input
+            # tokens factures, meme capacite de recherche).
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
+        logger_usage_claude("decouverte_societes_emergentes", msg)
         texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
         match = re.search(r'\[.*\]', texte, re.DOTALL)
         if not match:
@@ -1475,9 +1479,10 @@ def recherche_web_claude():
         msg = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=800,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
+        logger_usage_claude("recherche_web_claude", msg)
         blocs_texte = [b.text for b in msg.content
                        if hasattr(b, "text") and b.text and
                        not b.text.startswith("Je vais") and
@@ -1543,6 +1548,21 @@ def build_system_prompt():
             "Reponds en max 80 mots, chiffres precis, jamais de fraction d action.")
 
 
+def logger_usage_claude(nom_appel, msg):
+    """v11.18 : trace le cout reel de chaque appel Claude (input/output/cache)
+    dans les logs Railway — jusqu ici aucun appel ne loguait usage, impossible
+    de mesurer precisement d ou vient la facture mensuelle sans deviner.
+    Volontairement silencieux en cas d echec (jamais bloquant pour l appelant)."""
+    try:
+        u = msg.usage
+        print("[USAGE][{}] in={} out={} cache_read={} cache_write={}".format(
+            nom_appel, u.input_tokens, u.output_tokens,
+            getattr(u, "cache_read_input_tokens", 0),
+            getattr(u, "cache_creation_input_tokens", 0)))
+    except Exception as e:
+        print("[USAGE][{}] log impossible : {}".format(nom_appel, str(e)[:80]))
+
+
 def extraire_texte_claude(msg):
     """Concatene les blocs texte d'une reponse Claude, en ignorant les autres
     types de blocs (ThinkingBlock, ToolUseBlock...).
@@ -1600,6 +1620,7 @@ def dialogue_contextuel(question_user, donnees_ok, geo_scores, web_actu):
             system=build_system_prompt(),
             messages=HISTORIQUE_CONVERSATION
         )
+        logger_usage_claude("dialogue_contextuel", msg)
         rep = extraire_texte_claude(msg)
         HISTORIQUE_CONVERSATION.append({"role": "assistant", "content": rep})
         return rep
@@ -1816,7 +1837,12 @@ def construire_recommandation(ticker, d, sa, sv, geo_bonus=0):
         contre.append("ligne deja a {:.0f}% du patrimoine".format(poids_ligne))
 
     # --- Filtres bloquants (identiques au scan) ---
-    if not detenu_cto and s.get("type") in ["CTO", "CTO-US"]:
+    # v11.18 : le blocage "ligne soldee" ne s applique plus a Orange, Safran,
+    # BNP, Capgemini, Airbus — retire a la demande explicite de Matthieu
+    # (regle 4 du prompt Claude supprimee en meme temps). Reste actif pour
+    # toute autre ligne CTO qui passerait a quantite 0 a l avenir.
+    if (not detenu_cto and s.get("type") in ["CTO", "CTO-US"]
+            and ticker not in ["ORA.PA", "SAF.PA", "BNP.PA", "CAP.PA", "AIR.PA"]):
         bloquants.append("ligne soldee — pas de reouverture automatique")
     if ticker == "TTE.PA":
         wti = cache_get("md:CL=F", "marche")     # cache only, jamais de fetch ici
@@ -2012,9 +2038,10 @@ def rechercher_et_valider_ticker(nom_demande):
         ).format(nom_demande[:60])
         msg = client.messages.create(  # v11.17 : 250 -> 700, meme raison
             model=CLAUDE_MODEL, max_tokens=700,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
+        logger_usage_claude("rechercher_et_valider_ticker", msg)
         texte = "".join(b.text for b in msg.content if hasattr(b, "text"))
         match = re.search(r'\{[^{}]*\}', texte)
         if not match:
@@ -2335,8 +2362,12 @@ def fiche_valeur(texte, ticker_connu=None, entree_connue=None):
     L.append("Enveloppe visee : <b>{}</b> (cash {} : {:.0f}EUR)".format(env, env, cash))
 
     # Filtres bloquants — memes regles que le scan
+    # v11.18 : blocage "ligne soldee" retire pour Orange/Safran/BNP/Capgemini/
+    # Airbus (demande explicite de Matthieu), cf. meme changement dans
+    # construire_recommandation() et la regle 4 du prompt Claude.
     blocages = []
-    if not detenu_cto and s.get("type") in ["CTO", "CTO-US"]:
+    if (not detenu_cto and s.get("type") in ["CTO", "CTO-US"]
+            and ticker not in ["ORA.PA", "SAF.PA", "BNP.PA", "CAP.PA", "AIR.PA"]):
         blocages.append("ligne soldee — le bot ne rouvre jamais une position seul")
     if ticker == "TTE.PA":
         wti = cache_get("md:CL=F", "marche")     # cache only, jamais de fetch ici
@@ -3811,6 +3842,47 @@ def pv_totale(donnees):
 # ============================================================
 # ANALYSE CLAUDE — prompt v11.0 (cash dynamique, SPCX, Capgemini)
 # ============================================================
+# v11.18 : partie fixe extraite en system prompt + cache_control (ttl 1h).
+# Avant, ces regles/instructions (identiques a chaque appel) etaient
+# refacturees en integralite a chaque scan, jamais mises en cache, car
+# melangees avec le contexte dynamique (cash, positions, marche) dans un
+# seul message. Ce bloc ne doit contenir AUCUNE valeur interpolee — le
+# moindre octet different casse le cache pour tout le monde.
+SYSTEM_PROMPT_ANALYSE_CLAUDE = """Tu es l agent financier personnel de Matthieu. Raisonne comme un conseiller humain rigoureux : prudent, chiffre, jamais survendeur.
+
+ENVELOPPES ETANCHES : le cash PEA ne peut JAMAIS servir a acheter sur le CTO, et reciproquement. Un PER (ETF monde/US) existe mais est bloque : ne jamais proposer d arbitrage dessus.
+
+REGLES ABSOLUES INVIOLABLES :
+1. JAMAIS proposer d achat CTO si le cash CTO disponible (indique dans le contexte fourni) < prix de l action. Le cash PEA n entre JAMAIS dans ce calcul.
+2. JAMAIS de fraction d action. Uniquement des entiers : 1, 2 ou 3.
+3. JAMAIS proposer achat si RSI > 65. RSI > 70 = SURACHAT. RSI < 30 = SURVENTE.
+4. Prix toujours en EUR. Ordre limite obligatoire pour Microsoft et SPCX.
+5. Un score geo positif NE suffit JAMAIS seul. Achat autorise UNIQUEMENT si RSI < 40.
+   Si RSI >= 40, l achat est INVALIDE meme avec un geo +30 (ex : RSI 50 + geo +30 = INVALIDE).
+6. Une donnee marquee [DONNEE SUSPECTE] ne justifie AUCUN signal.
+7. CONTRAINTE ABSOLUE : ton [ACTION] doit etre soit l un des SIGNAUX VALIDES PAR LE MOTEUR
+   listes dans le contexte fourni, soit "Rien a faire". Tu n inventes JAMAIS un achat ou une
+   vente absent de cette liste, meme si le contexte te semble favorable. Si la liste est vide,
+   la seule reponse possible est "Rien a faire".
+
+POSITIONS SPECIALES :
+- SPCX (SpaceX) : 1 titre @117.03EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
+
+REGLES DE RAISONNEMENT (dans cet ordre) :
+1. Contradictions d abord : defense RSI>65 = pas d achat | TotalEnergies = achat seulement si WTI monte ET RSI<40 | geo seul = invalide
+2. Flat tax : calculer l impot (PV x 30%) avant de suggerer une vente
+3. Signal fort = score > 65 ET RSI coherent ET sous-jacent confirme
+
+REPONDS EN 200 MOTS MAX :
+[MARCHE] 1 phrase (inclure contradiction si detectee)
+[PORTEFEUILLE] 3-4 lignes : ce qui va, ce qui souffre, PV totale
+[ACTION] UNE decision claire :
+  → Achat : ACHAT | VALEUR | QTE | PRIX EUR | type ordre | raison | cash restant
+  → Vente : VENTE | VALEUR | QTE | PRIX EUR | PV nette apres flat tax
+  → Rien : "Rien a faire — [raison]. Prochain declencheur : [niveau ou date]"
+[RISQUE] 1 phrase"""
+
+
 def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_themes,
                    capitol_trades=None, question_user=None, signaux_valides=None):
     if not ANTHROPIC_API_KEY:
@@ -3880,13 +3952,10 @@ def analyse_claude(donnees, moment, news_p, news_m, sentiment, geo_scores, geo_t
     if question_user and question_user.strip():
         signaux_str = "\nQUESTION : " + question_user[:150]
 
-    prompt = """Tu es l agent financier personnel de Matthieu. Raisonne comme un conseiller humain rigoureux : prudent, chiffre, jamais survendeur.
-
-PORTEFEUILLE CTO (flat tax 30%, horizon 1 an, risque modere-eleve) :
+    prompt = """PORTEFEUILLE CTO (flat tax 30%, horizon 1 an, risque modere-eleve) :
 {positions}
 Cash CTO : ~{cash:.0f}EUR | Cash PEA : ~{cash_pea:.0f}EUR | PV totale CTO : {pv:+.0f}EUR
-ENVELOPPES ETANCHES : le cash PEA ({cash_pea:.0f}EUR) ne peut PAS servir a acheter sur le CTO.
-Un PER de {per:.0f}EUR (ETF monde/US) existe mais est bloque : ne jamais proposer d arbitrage dessus.
+Plafond PER (bloque, jamais d arbitrage dessus) : {per:.0f}EUR
 {div}
 
 MARCHE {moment} {date} :
@@ -3896,39 +3965,7 @@ NEWS : {news}
 SENTIMENT : {sentiment}
 
 {signaux_moteur}
-{signaux}
-
-REGLES ABSOLUES INVIOLABLES :
-1. JAMAIS proposer d achat CTO si le cash CTO ({cash:.0f}EUR) < prix de l action.
-   Le cash PEA n entre JAMAIS dans ce calcul.
-2. JAMAIS de fraction d action. Uniquement des entiers : 1, 2 ou 3.
-3. JAMAIS proposer achat si RSI > 65. RSI > 70 = SURACHAT. RSI < 30 = SURVENTE.
-4. JAMAIS proposer d achat sur une ligne soldee (quantite 0) : Orange, Safran, BNP, Capgemini, Airbus.
-5. Prix toujours en EUR. Ordre limite obligatoire pour Microsoft et SPCX.
-6. Un score geo positif NE suffit JAMAIS seul. Achat autorise UNIQUEMENT si RSI < 40.
-   Si RSI >= 40, l achat est INVALIDE meme avec un geo +30 (ex : RSI 50 + geo +30 = INVALIDE).
-7. Une donnee marquee [DONNEE SUSPECTE] ne justifie AUCUN signal.
-8. CONTRAINTE ABSOLUE : ton [ACTION] doit etre soit l un des SIGNAUX VALIDES PAR LE MOTEUR
-   listes ci-dessus, soit "Rien a faire". Tu n inventes JAMAIS un achat ou une vente
-   absent de cette liste, meme si le contexte te semble favorable. Si la liste est vide,
-   la seule reponse possible est "Rien a faire".
-
-POSITIONS SPECIALES :
-- SPCX (SpaceX) : 1 titre @117.03EUR, post-IPO 12/06/2026. Prise de profit partielle si >+40% vs PRU. Renforcement uniquement si <112EUR ET RSI<45. Sinon : tenir (soutien MSCI 30-90j post-IPO).
-
-REGLES DE RAISONNEMENT (dans cet ordre) :
-1. Contradictions d abord : defense RSI>65 = pas d achat | TotalEnergies = achat seulement si WTI monte ET RSI<40 | geo seul = invalide
-2. Flat tax : calculer l impot (PV x 30%) avant de suggerer une vente
-3. Signal fort = score > 65 ET RSI coherent ET sous-jacent confirme
-
-REPONDS EN 200 MOTS MAX :
-[MARCHE] 1 phrase (inclure contradiction si detectee)
-[PORTEFEUILLE] 3-4 lignes : ce qui va, ce qui souffre, PV totale
-[ACTION] UNE decision claire :
-  → Achat : ACHAT | VALEUR | QTE | PRIX EUR | type ordre | raison | cash restant
-  → Vente : VENTE | VALEUR | QTE | PRIX EUR | PV nette apres flat tax
-  → Rien : "Rien a faire — [raison]. Prochain declencheur : [niveau ou date]"
-[RISQUE] 1 phrase""".format(
+{signaux}""".format(
         positions="\n".join(positions[:12]),
         cash=cash,
         cash_pea=cash_pea_a,
@@ -3963,7 +4000,16 @@ REPONDS EN 200 MOTS MAX :
         msg = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=2500,
+            system=[{
+                "type": "text",
+                "text": SYSTEM_PROMPT_ANALYSE_CLAUDE,
+                # ttl 1h : les scans sont espaces de 30min ou plus, le TTL par
+                # defaut (5min) ne suffirait pas a accrocher le cache d un
+                # scan au suivant.
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }],
             messages=[{"role": "user", "content": prompt}])
+        logger_usage_claude("analyse_claude", msg)
         resultat = extraire_texte_claude(msg)
         if resultat and len(resultat) > 20:
             DERNIERE_ERREUR_CLAUDE = None
@@ -4585,6 +4631,7 @@ Reponds en JSON strict (sans markdown) :
             max_tokens=900,
             messages=[{"role": "user", "content": prompt_optim}]
         )
+        logger_usage_claude("auto_optimisation", resp)
         raw = extraire_texte_claude(resp)
 
         import re
@@ -4695,6 +4742,7 @@ def auto_optimisation_avec_patch():
                         taux_echec * 100,
                         " | ".join([r.get("valeur","?") + " " + r.get("action","?")
                                     for r in mauvaises[:3]]))}])
+            logger_usage_claude("auto_optimisation_avec_patch", msg)
             suggestion = extraire_texte_claude(msg)
             # v11.18 : suggestion (pas une action) — plus envoyee sur Telegram,
             # meme logique que le rapport hebdomadaire ci-dessus.
