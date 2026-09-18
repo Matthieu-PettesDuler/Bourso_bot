@@ -388,7 +388,7 @@ SEUILS = {
     "STMPA.PA":{"nom": "STMicroelectronics","achat": 37.00, "vente": 73.00, "type": "WATCH",   "secteur": "Semi-conducteurs",
                 "pea": {"quantite": 10, "px_revient": 45.31}},
     "VIE.PA":  {"nom": "Veolia",            "achat": 32.00, "vente": 39.00, "type": "WATCH",   "secteur": "Eau/Environnement",
-                "pea": {"quantite": 10, "px_revient": 35.22}},
+                "pea": {"quantite": 10, "px_revient": 35.23}},
     "ETL.PA":  {"nom": "Eutelsat",          "achat": 2.50,  "vente": 4.50,  "type": "WATCH",   "secteur": "Spatial",
                 "pea": {"quantite": 150, "px_revient": 1.99}},
     # v11.17 : MCPHY.PA retiree — la societe a change de ticker (ALMCP, suite
@@ -416,10 +416,12 @@ SEUILS = {
     # rafraichir_seuils.py (MM200 = achat, plus haut 1 an +5% = vente), meme
     # methode que les autres ajouts recents.
     "MRVL":    {"nom": "Marvell Technology","achat": 140.00,"vente": 330.00,"type": "CTO-US", "secteur": "Semi-conducteurs", "quantite": 1, "px_revient": 212.94},
-    "BETA":    {"nom": "Beta Technologies", "achat": 22.00, "vente": 39.00, "type": "CTO-US", "secteur": "Mobilite aerienne electrique", "quantite": 10, "px_revient": 22.35},
+    # v11.18 : renfort reel 18/09/2026 (releve Boursobank), 10->20 titres.
+    "BETA":    {"nom": "Beta Technologies", "achat": 22.00, "vente": 39.00, "type": "CTO-US", "secteur": "Mobilite aerienne electrique", "quantite": 20, "px_revient": 20.55},
     # Alphabet Classe C (GOOG, sans droit de vote) — position reelle, distincte
     # de GOOGL (Classe A, deja suivie en WATCH-US sans position).
-    "GOOG":    {"nom": "Alphabet Classe C", "achat": 330.00,"vente": 420.00,"type": "CTO-US", "secteur": "IA/Cloud", "quantite": 3, "px_revient": 299.12},
+    # v11.18 : renfort reel 18/09/2026 (releve Boursobank), 3->5 titres.
+    "GOOG":    {"nom": "Alphabet Classe C", "achat": 330.00,"vente": 420.00,"type": "CTO-US", "secteur": "IA/Cloud", "quantite": 5, "px_revient": 295.19},
     # ---- DIVERSIFICATION v11.15 : secteurs totalement absents du portefeuille ----
     "SAN.PA":  {"nom": "Sanofi",            "achat": 75.00, "vente": 90.00, "type": "WATCH",   "secteur": "Sante",
                 "pea": {"quantite": 2, "px_revient": 76.78}},
@@ -433,12 +435,17 @@ SEUILS = {
 
     # PEA — socle indiciel
     "WPEA.PA": {"nom": "iShares World PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World"},
-    # Bourso Monde / Europe : OPCVM FR001400RWK6 / RWJ8, absents de yfinance.
+    # Bourso Monde / Europe / Tech : OPCVM absents de yfinance.
     # "valeur_eur" = valorisation figee du releve, mise a jour via "maj pea".
+    # v11.18 : renforts reels 18/09/2026 sur Monde et Europe.
     "CW8.PA":  {"nom": "Bourso Monde",      "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF World",
-                "pea": {"quantite": 36.284, "px_revient": 114.87, "valeur_eur": 4401.97}},
+                "pea": {"quantite": 40.457, "px_revient": 115.38, "valeur_eur": 4840.63}},
     "ERO.PA":  {"nom": "Bourso Europe",     "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Europe",
-                "pea": {"quantite": 7.403,  "px_revient": 123.75, "valeur_eur": 988.81}},
+                "pea": {"quantite": 8.937,  "px_revient": 124.89, "valeur_eur": 1161.21}},
+    # v11.18 : nouvelle ligne du Plan d Epargne PEA, decouverte sur le releve
+    # du 18/09/2026 (absente jusqu ici du suivi).
+    "BTECH.PA":{"nom": "Bourso Tech",       "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Tech",
+                "pea": {"quantite": 0.638,  "px_revient": 156.70, "valeur_eur": 96.93}},
     # PEA — briques de diversification (zones/segments absents)
     "PE500.PA":{"nom": "ETF S&amp;P 500 PEA",   "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF US"},
     "PAEEM.PA":{"nom": "ETF Emergents PEA", "achat": None,  "vente": None,  "type": "PEA",     "secteur": "ETF Emergents"},
