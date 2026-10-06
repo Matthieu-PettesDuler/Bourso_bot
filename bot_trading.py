@@ -1253,20 +1253,135 @@ def calcul_position_size(score, cours, cash_dispo):
 
 
 def check_stop_loss(donnees_ok):
+    """Positions a -15% ou plus vs PRU, CTO *et* PEA.
+    v11.19 : le PEA etait ignore (seule la poche CTO etait regardee). Au
+    18/09/2026, LVMH (-16%) et Eutelsat (-23%), detenues en PEA, ne
+    declenchaient donc aucun stop-loss. Chaque alerte porte desormais son
+    enveloppe ("CTO" ou "PEA")."""
     alertes = []
     for d in donnees_ok:
         s = SEUILS.get(d["ticker"], {})
-        if s.get("type") not in ["CTO","CTO-US"]: continue
-        if not s.get("px_revient"): continue
-        cours = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
-        perte = (cours - s["px_revient"]) / s["px_revient"] * 100
-        if perte <= -15:
-            alertes.append({
-                "nom": s["nom"], "ticker": d["ticker"],
-                "perte_pct": round(perte,1), "cours": cours,
-                "px_revient": s["px_revient"], "quantite": s.get("quantite",1)
-            })
+        # --- Poche CTO (logique d origine, inchangee) ---
+        if s.get("type") in ["CTO", "CTO-US"] and s.get("px_revient"):
+            cours = round(d["cours"]/EUR_USD_RATE,2) if s["type"]=="CTO-US" else d["cours"]
+            perte = (cours - s["px_revient"]) / s["px_revient"] * 100
+            if perte <= -15:
+                alertes.append({
+                    "nom": s["nom"], "ticker": d["ticker"], "enveloppe": "CTO",
+                    "perte_pct": round(perte,1), "cours": cours,
+                    "px_revient": s["px_revient"], "quantite": s.get("quantite",1)
+                })
+        # --- Poche PEA (nouveau). Meme conversion de devise que calcul_pv.
+        # Les OPCVM Bourso Monde/Europe/Tech n ont pas de cours yfinance :
+        # absents de donnees_ok, donc naturellement ignores ici. ---
+        poche = s.get("pea")
+        if poche and poche.get("px_revient") and poche.get("quantite"):
+            cours = (round(d["cours"]/EUR_USD_RATE,2)
+                     if s.get("type") in ["CTO-US", "WATCH-US"] else d["cours"])
+            perte = (cours - poche["px_revient"]) / poche["px_revient"] * 100
+            if perte <= -15:
+                alertes.append({
+                    "nom": s["nom"], "ticker": d["ticker"], "enveloppe": "PEA",
+                    "perte_pct": round(perte,1), "cours": cours,
+                    "px_revient": poche["px_revient"], "quantite": poche["quantite"]
+                })
     return alertes
+
+
+# ============================================================
+# ANTI-DOUBLON DES ALERTES v11.19
+#
+# Avant, un signal (ou un stop-loss) qui restait vrai d un scan a l autre
+# renvoyait un message complet + un appel Claude toutes les 30 minutes
+# pendant toute la seance : aucune memoire de ce qui avait deja ete signale.
+# C est a la fois du bruit (ce n est pas une NOUVELLE action a faire) et du
+# cout API. Regles de re-notification :
+#  - signal ACHAT/VENTE : 1 rappel par jour calendaire, ou tout de suite si
+#    le score gagne >= 10 points depuis la derniere alerte
+#  - stop-loss : tout de suite si la perte s aggrave de >= 5 points, sinon
+#    rappel hebdomadaire
+#  - alerte SPCX : 1 par jour
+# Etat dans memoire["alertes_actives"], ecrit seulement quand une alerte part
+# (pas de commit GitHub supplementaire).
+# ============================================================
+ALERTE_SIGNAL_HAUSSE_SCORE  = 10
+ALERTE_STOPLOSS_AGGRAVATION = 5.0
+ALERTE_STOPLOSS_RAPPEL_JOURS = 7
+ALERTES_RETENTION_JOURS     = 30
+
+
+def _alerte_jour_precedent(entree, maintenant):
+    """True si la derniere alerte date d un autre jour que `maintenant`."""
+    try:
+        t = datetime.fromisoformat(entree["t"])
+        return t.astimezone(PARIS_TZ).date() != maintenant.date()
+    except Exception:
+        return True   # entree illisible : on prefere re-notifier que se taire
+
+
+def alertes_a_notifier(m, signaux, stop_loss, spcx, maintenant):
+    """Ne garde que les alertes nouvelles ou a rappeler.
+    Retourne (signaux, stop_loss, spcx, a_enregistrer) ou a_enregistrer est la
+    liste de (cle, entree) a memoriser SI le message part effectivement."""
+    actives = m.get("alertes_actives", {})
+    iso = maintenant.isoformat()
+    a_enregistrer = []
+
+    sig_ok = []
+    for sig in signaux:
+        cle = "SIG|{}|{}".format(sig["ticker"], sig["type"])
+        prec = actives.get(cle)
+        score = sig.get("score") or 0
+        if (prec is None or _alerte_jour_precedent(prec, maintenant)
+                or score >= (prec.get("score") or 0) + ALERTE_SIGNAL_HAUSSE_SCORE):
+            sig_ok.append(sig)
+            a_enregistrer.append((cle, {"t": iso, "score": score}))
+        else:
+            print("[ANTI-DOUBLON] {} {} deja signale aujourd hui — ignore".format(
+                sig["type"], sig["nom"]))
+
+    sl_ok = []
+    for sl in stop_loss:
+        cle = "SL|{}|{}".format(sl["ticker"], sl.get("enveloppe", "CTO"))
+        prec = actives.get(cle)
+        renotifier = prec is None
+        if not renotifier:
+            try:
+                age_j = (maintenant - datetime.fromisoformat(prec["t"])).days
+            except Exception:
+                age_j = ALERTE_STOPLOSS_RAPPEL_JOURS
+            renotifier = (sl["perte_pct"] <= (prec.get("perte") or 0) - ALERTE_STOPLOSS_AGGRAVATION
+                          or age_j >= ALERTE_STOPLOSS_RAPPEL_JOURS)
+        if renotifier:
+            sl_ok.append(sl)
+            a_enregistrer.append((cle, {"t": iso, "perte": sl["perte_pct"]}))
+        else:
+            print("[ANTI-DOUBLON] stop-loss {} ({}) deja signale — ignore".format(
+                sl["nom"], sl.get("enveloppe", "CTO")))
+
+    spcx_ok = []
+    for a in spcx:
+        cle = "SPCX|" + a[:30]
+        prec = actives.get(cle)
+        if prec is None or _alerte_jour_precedent(prec, maintenant):
+            spcx_ok.append(a)
+            a_enregistrer.append((cle, {"t": iso}))
+
+    return sig_ok, sl_ok, spcx_ok, a_enregistrer
+
+
+def enregistrer_alertes_envoyees(m, a_enregistrer, maintenant):
+    """Memorise les alertes parties et purge celles de plus de 30 jours.
+    Modifie `m` en place : c est l appelant qui sauvegarde."""
+    actives = m.setdefault("alertes_actives", {})
+    for cle, entree in a_enregistrer:
+        actives[cle] = entree
+    for cle in list(actives.keys()):
+        try:
+            if (maintenant - datetime.fromisoformat(actives[cle]["t"])).days > ALERTES_RETENTION_JOURS:
+                del actives[cle]
+        except Exception:
+            del actives[cle]
 
 # ============================================================
 # DECOUVERTE SOCIETES EMERGENTES
@@ -2677,8 +2792,9 @@ def check_messages_telegram():
                 if sl:
                     lignes = ["🛑 <b>Positions en stop-loss (perte > 15%) :</b>"]
                     for x in sl:
-                        lignes.append("🔴 <b>{}</b> : {:+.1f}% | PRU {}EUR → {}EUR | {} actions".format(
-                            x["nom"], x["perte_pct"], x["px_revient"], x["cours"], x["quantite"]))
+                        lignes.append("🔴 <b>{}</b> [{}] : {:+.1f}% | PRU {}EUR → {}EUR | {:g} actions".format(
+                            x["nom"], x.get("enveloppe", "CTO"), x["perte_pct"],
+                            x["px_revient"], x["cours"], x["quantite"]))
                     send_telegram("\n".join(lignes))
                 else:
                     send_telegram("✅ Aucune position en stop-loss (seuil -15%).")
@@ -4290,8 +4406,16 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     # seuil defini) ne declenche plus de message a lui seul — demande explicite
     # de Matthieu : ne recevoir que les messages ou une valeur devient
     # verte->acheter ou rouge->vendre, pas les pistes a surveiller.
+    # v11.19 : anti-doublon. On retire ce qui a deja ete signale (cf. regles
+    # de re-notification plus haut). Une analyse manuelle (force) montre tout,
+    # sans lire ni modifier l etat.
+    a_enregistrer = []
+    if not force:
+        signaux_forts, stop_loss_alertes, spcx_alertes, a_enregistrer = alertes_a_notifier(
+            m_mem, signaux_forts, stop_loss_alertes, spcx_alertes, now_paris)
+
     if not signaux_forts and not spcx_alertes and not stop_loss_alertes and not stop_loss_crypto and not force:
-        print("[SCAN] Aucun signal — silence")
+        print("[SCAN] Aucun signal nouveau — silence")
         return
 
     # ── Message ───────────────────────────────────────────────
@@ -4427,8 +4551,8 @@ def analyse_complete(moment="scan", force=False, session="EU"):
     if stop_loss_alertes:
         sl_bloc = "\n🛑 <b>STOP-LOSS > -15% :</b>\n"
         for sl in stop_loss_alertes:
-            sl_bloc += "  🔴 {} {:+.1f}% ({} actions)\n".format(
-                sl["nom"], sl["perte_pct"], sl["quantite"])
+            sl_bloc += "  🔴 {} [{}] {:+.1f}% ({:g} actions)\n".format(
+                sl["nom"], sl.get("enveloppe", "CTO"), sl["perte_pct"], sl["quantite"])
     if stop_loss_crypto:
         sl_bloc += "\n💀 <b>CRYPTO STOP-LOSS > -20% :</b>\n"
         for sl in stop_loss_crypto:
@@ -4473,11 +4597,19 @@ def analyse_complete(moment="scan", force=False, session="EU"):
 
     send_telegram(msg)
 
+    # v11.19 : les decisions s ecrivent dans m_mem (l objet sauvegarde juste
+    # apres). Avant, enregistrer_decision() rechargeait sa propre copie de la
+    # memoire, la sauvait, puis le save_memoire(m_mem) final ecrasait le
+    # fichier avec une copie qui n avait pas la decision : selon le delai
+    # depuis le dernier push GitHub, des decisions pouvaient etre perdues
+    # (et avec elles le backtest / l auto-optimisation qui s en nourrissent).
     for sig in signaux_forts:
         cours_eur = round(sig["cours"]/EUR_USD_RATE, 2) if SEUILS.get(sig["ticker"],{}).get("type")=="CTO-US" else sig["cours"]
         enregistrer_decision(sig["type"], sig["nom"], cours_eur,
-                             rsi=sig.get("rsi"), score=sig.get("score"))
+                             rsi=sig.get("rsi"), score=sig.get("score"), m=m_mem)
 
+    if not force:
+        enregistrer_alertes_envoyees(m_mem, a_enregistrer, now_paris)
     m_mem["dernier_scan"] = now
     save_memoire(m_mem)
     print("[" + now + "] Message envoye — {} signaux, {} alertes SPCX, {} positions a regarder".format(
@@ -4895,9 +5027,13 @@ def auto_ajustement_risque():
         " | risque ".join(ECHELLE_RISQUE))
 
 
-def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
-    """Enregistre une decision/signal pour le backtest. v11 : appel automatique a chaque signal envoye."""
-    m = load_memoire()
+def enregistrer_decision(action, valeur, prix, rsi=None, score=None, m=None):
+    """Enregistre une decision/signal pour le backtest. v11 : appel automatique a chaque signal envoye.
+    v11.19 : si `m` est fourni, on travaille dessus et c est l appelant qui
+    sauvegarde (evite d ecraser la decision par un save de copie perimee)."""
+    appelant_sauvegarde = m is not None
+    if m is None:
+        m = load_memoire()
     date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y")
     for d in m.get("decisions", []):
         if d.get("date") == date_str and d.get("valeur") == valeur and d.get("action") == action:
@@ -4912,7 +5048,8 @@ def enregistrer_decision(action, valeur, prix, rsi=None, score=None):
     }
     m.setdefault("decisions", []).append(decision)
     m["decisions"] = m["decisions"][-50:]
-    save_memoire(m)
+    if not appelant_sauvegarde:
+        save_memoire(m)
     print("[DECISION] Enregistree : {} {} a {}EUR".format(action, valeur, prix))
 
 # ============================================================
